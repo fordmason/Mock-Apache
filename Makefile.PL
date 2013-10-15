@@ -1,17 +1,17 @@
 use ExtUtils::MakeMaker;
 
 WriteMakefile( NAME          => 'Mock::Apache',
-	       VERSION_FROM  => 'lib/Mock/Apache.pm',
-	       AUTHOR        => 'Andrew Ford <ANDREWF@cpan.org>',
-	       PREREQ_PM     => {
-		   'Apache::FakeTable' => 0,
-		   'parent'            => 0,
-		   'Readonly'          => 0,
-		   'URI'               => 0,
-	       },
-	       META_ADD      => {
-		   no_index => {
-		       package   => [ qw( Apache
+               VERSION_FROM  => 'lib/Mock/Apache.pm',
+               AUTHOR        => 'Andrew Ford <ANDREWF@cpan.org>',
+               PREREQ_PM     => {
+                   'Apache::FakeTable' => 0,
+                   'parent'            => 0,
+                   'Readonly'          => 0,
+                   'URI'               => 0,
+               },
+               META_ADD      => {
+                   no_index => {
+                       package   => [ qw( Apache
                                           Apache::Connection
                                           Apache::Constants
                                           Apache::Log
@@ -19,6 +19,11 @@ WriteMakefile( NAME          => 'Mock::Apache',
                                           Apache::Table
                                           Apache::URI
                                           Apache::Util ) ],
-		   },
-	       },
-    );
+                   },
+                   repository  => {
+                       url  => 'git://github.com/fordmason/Mock-Apache.git',
+                       web  => 'https://github.com/fordmason/Mock-Apache',
+                       type => 'git',
+                   },                                     
+               },
+            );

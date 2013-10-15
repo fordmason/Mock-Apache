@@ -46,5 +46,10 @@
       }
    },
    "release_status" : "stable",
-   "version" : "0.02"
+   "version" : "0.03",
+   "x_repository" : {
+      "type" : "git",
+      "url" : "git://github.com/fordmason/Mock-Apache.git",
+      "web" : "https://github.com/fordmason/Mock-Apache"
+   }
 }
