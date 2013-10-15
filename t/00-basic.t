@@ -1,4 +1,4 @@
-#!/usr/bin/env perl -w
+#!/usr/bin/env perl
 
 use strict;
 
@@ -6,8 +6,13 @@ use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
-use_ok('Mock::Apache')
-    or die 'cannot load Mock::Apache';
+BEGIN {
+    use_ok('Mock::Apache')
+	or die 'cannot load Mock::Apache';
+
+    require Apache::Constants;
+    Apache::Constants->import(':common');
+}
 
 my $start_time = time;
 
@@ -23,5 +28,23 @@ is($server->server_admin,    'webmaster@server.example.com', '$s->server_admin')
 cmp_ok($request->request_time, '>=', $start_time, 'request time is sane (not earlier than start of test)');
 cmp_ok($request->request_time, '<=', time,        'request time is sane (not later than now)');
 
+ok(!exists $ENV{REMOTE_HOST}, 'no $ENV{REMOTE_HOST} entry prior to invoking handler');
+$mock_apache->execute_handler(\&handler, $request);
+ok(!exists $ENV{REMOTE_HOST}, 'no $ENV{REMOTE_HOST} entry after invoking handler');
+
 done_testing();
+
+
+sub handler {
+    my $r = shift;
+
+    subtest in_handler => sub {
+	ok(exists $ENV{REMOTE_HOST}, 'in handler: $ENV{REMOTE_HOST} entry exists');
+	ok($r->is_initial_req,       'in handler: $r->is_initial_req');
+	ok($r->is_main,              'in handler: $r->is_main');
+	is($r->server->server_admin, 'webmaster@server.example.com', 'in handler: $s->server_admin');
+    };
+    return OK;
+}
+
 

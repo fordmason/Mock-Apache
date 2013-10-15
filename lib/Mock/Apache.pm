@@ -4,7 +4,7 @@ use strict;
 
 use Readonly;
 
-our $VERSION = "0.02";
+our $VERSION = "0.03";
 
 Readonly our $DEFAULT_HOSTNAME => 'server.example.com';
 Readonly our $DEFAULT_ADDR     => '22.22.22.22';
@@ -126,8 +126,11 @@ our $request;
 sub new {
     my ($class, %params) = @_;
 
+    # Set up environment for later - %ENV entries will be localized
+
     my $env = { GATEWAY_INTERFACE => delete $params{GATEWAY_INTERFACE} || 'CGI-Perl/1.1',
 		MOD_PERL          => '1.3',
+		SERVER_SOFTWARE   => 'Apache emulation (Mock::Apache)',
 		REMOTE_ADDR       => delete $params{REMOTE_ADDR} || '42.42.42.42',
 		REMOTE_HOST       => delete $params{REMOTE_HOST} || 'remote.example.com' };
 
@@ -144,17 +147,31 @@ sub new {
     $r->{err_headers_out} = Apache::Table->new($r);
     $r->{subprocess_env}  = Apache::Table->new($r);
 
+    my $server = $r->{server} ||= Apache::Server->new();
+    $r->{connection} ||= Apache::Connection->new();
+    $r->{log}        ||= $r->server->log;
+
+    # Expand the environment with information from server object
+
+    $env->{DOCUMENT_ROOT} ||= $r->document_root;
+    $env->{SERVER_ADMIN}  ||= $server->server_admin;
+    $env->{SERVER_NAME}   ||= $server->server_hostname;
+    $env->{SERVER_PORT}   ||= $r->get_server_port;
+
+    # TODO: AUTH_TYPE, CONTENT_LENGTH, CONTENT_TYPE, PATH_INFO,
+    # PATH_TRANSLATED, QUERY_STRING, REMOTE_IDENT, REMOTE_USER,
+    # REQUEST_METHOD, SCRIPT_NAME, SERVER_PROTOCOL, UNIQUE_ID
+
     while (my($key, $val) = each %{$params{headers} || {}}) {
 	$r->{headers_in}->set($key, $val);
+	(my $header_env = "HTTP_$key") =~ s/-/_/g;
+	$r->{subprocess_env}->set($header_env, $val);
     }
 
     while (my($key, $val) = each %$env) {
 	$r->{subprocess_env}->set($key, $val);
     }
 
-    $r->{server}     ||= Apache::Server->new();
-    $r->{connection} ||= Apache::Connection->new();
-    $r->{log}        ||= $r->server->log;
 
     return $r;
 }
@@ -162,7 +179,8 @@ sub new {
 sub request { $request };
 sub server  { $server };
 
-sub document_root { shift->server->{document_root}; }
+sub document_root   { shift->server->{document_root}; }
+sub get_server_port { shift->server->{server_port}; }
 
 sub header_in       { shift->{headers_in}->_get_or_set(@_); }
 sub header_out      { shift->{headers_out}->_get_or_set(@_); }
@@ -618,6 +636,14 @@ and minimally "parsing" it.
 =head2 execute_handler
 
 localizes elements of the %ENV hash
+
+
+=head1 SEE ALSO
+
+https://github.com/fordmason/Mock-Apache
+
+I<mod_perl Pocket Reference> by Andrew Ford, O'Reilly & Associates,
+Inc, Sebastapol, 2001, ISBN: 0-596-00047-2
 
 
 =head1 AUTHORS
