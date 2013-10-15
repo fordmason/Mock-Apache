@@ -14,9 +14,15 @@
    },
    "name" : "Mock-Apache",
    "no_index" : {
-      "directory" : [
-         "t",
-         "inc"
+      "package" : [
+         "Apache",
+         "Apache::Connection",
+         "Apache::Constants",
+         "Apache::Log",
+         "Apache::Server",
+         "Apache::Table",
+         "Apache::URI",
+         "Apache::Util"
       ]
    },
    "prereqs" : {
@@ -40,5 +46,5 @@
       }
    },
    "release_status" : "stable",
-   "version" : ""
+   "version" : "0.02"
 }

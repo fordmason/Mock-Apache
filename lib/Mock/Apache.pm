@@ -4,7 +4,7 @@ use strict;
 
 use Readonly;
 
-our $VERSION = "0.01";
+our $VERSION = "0.02";
 
 Readonly our $DEFAULT_HOSTNAME => 'server.example.com';
 Readonly our $DEFAULT_ADDR     => '22.22.22.22';
@@ -77,7 +77,8 @@ sub execute_handler {
 
 ##############################################################################
 
-package Apache;
+package                 # hide from PAUSE indexer
+    Apache;
 
 use Readonly;
 use URI;
@@ -249,7 +250,8 @@ sub _unimplemented {
 
 ##############################################################################
 
-package Apache::Server;
+package
+    Apache::Server;
 
 use Readonly;
 
@@ -290,7 +292,8 @@ sub names {
 
 ##############################################################################
 
-package Apache::Connection;
+package
+    Apache::Connection;
 
 sub new {
     my ($class, %params) = @_;
@@ -299,7 +302,8 @@ sub new {
 
 ##############################################################################
 
-package Apache::Log;
+package
+    Apache::Log;
 
 use Log::Log4perl;
 
@@ -310,7 +314,8 @@ sub new {
 
 ##############################################################################
 
-package Apache::Table;
+package
+    Apache::Table;
 
 use Apache::FakeTable;
 use parent 'Apache::FakeTable';
@@ -344,7 +349,8 @@ sub _get_or_set {
 
 ##############################################################################
 
-package Apache::URI;
+package
+    Apache::URI;
 
 use strict;
 use URI;
@@ -359,7 +365,8 @@ sub parse {
 
 ##############################################################################
 
-package Apache::Util;
+package
+    Apache::Util;
 
 sub escape_html {
     $DB::single=1;
@@ -400,7 +407,8 @@ sub validate_password {
 
 ##############################################################################
 
-package Apache::Constants;
+package
+    Apache::Constants;
 
 use parent 'Exporter';
 

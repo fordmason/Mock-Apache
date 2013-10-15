@@ -1,5 +1,7 @@
 #*
 *~
+*.old
 Makefile
+Mock-Apache-*
 blib
 pm_to_blib

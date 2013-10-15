@@ -9,4 +9,16 @@ WriteMakefile( NAME          => 'Mock::Apache',
 		   'Readonly'          => 0,
 		   'URI'               => 0,
 	       },
+	       META_ADD      => {
+		   no_index => {
+		       package   => [ qw( Apache
+                                          Apache::Connection
+                                          Apache::Constants
+                                          Apache::Log
+                                          Apache::Server
+                                          Apache::Table
+                                          Apache::URI
+                                          Apache::Util ) ],
+		   },
+	       },
     );
