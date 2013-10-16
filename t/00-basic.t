@@ -10,7 +10,9 @@ BEGIN {
     use_ok('Mock::Apache')
 	or die 'cannot load Mock::Apache';
 
-    require Apache::Constants;
+    # don't need to use Apache::Constants, as it is implemented in
+    # Mock::Apache
+
     Apache::Constants->import(':common');
 }
 

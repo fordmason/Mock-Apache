@@ -430,95 +430,48 @@ package
 
 use parent 'Exporter';
 
-our @COMMON_TAGS = qw( OK DECLINED DONE NOT_FOUND FORBIDDEN AUTH_REQUIRED SERVER_ERROR );
-our %EXPORT_TAGS = ( common     => [ @COMMON_TAGS ],
-                     response   => [ @COMMON_TAGS,
-				     qw( DOCUMENT_FOLLOWS
-                                         MOVED
-                                         REDIRECT
-                                         USE_LOCAL_COPY
-                                         BAD_REQUEST
-                                         BAD_GATEWAY
-                                         RESPONSE_CODES
-                                         NOT_IMPLEMENTED
-                                         CONTINUE
-                                         NOT_AUTHORITATIVE ) ],
+our @COMMON_CONSTS      = qw( OK DECLINED DONE NOT_FOUND FORBIDDEN AUTH_REQUIRED SERVER_ERROR );
+our @RESPONSE_CONSTS    = qw( DOCUMENT_FOLLOWS  MOVED  REDIRECT  USE_LOCAL_COPY
+			      BAD_REQUEST  BAD_GATEWAY  RESPONSE_CODES  NOT_IMPLEMENTED
+			      CONTINUE  NOT_AUTHORITATIVE );
+our @METHOD_CONSTS      = qw( METHODS  M_CONNECT  M_DELETE  M_GET  M_INVALID
+                             M_OPTIONS  M_POST  M_PUT  M_TRACE  M_PATCH
+                             M_PROPFIND  M_PROPPATCH  M_MKCOL  M_COPY
+                             M_MOVE  M_LOCK  M_UNLOCK );
+our @OPTIONS_CONSTS     = qw( OPT_NONE  OPT_INDEXES  OPT_INCLUDES  OPT_SYM_LINKS
+                              OPT_EXECCGI  OPT_UNSET  OPT_INCNOEXEC
+                              OPT_SYM_OWNER  OPT_MULTI  OPT_ALL );
+our @SATISFY_CONSTS     = qw( SATISFY_ALL SATISFY_ANY SATISFY_NOSPEC );
+our @REMOTEHOST_CONSTS  = qw( REMOTE_HOST REMOTE_NAME REMOTE_NOLOOKUP REMOTE_DOUBLE_REV );
+our @HTTP_CONSTS        = qw( HTTP_OK  HTTP_MOVED_TEMPORARILY  HTTP_MOVED_PERMANENTLY
+                              HTTP_METHOD_NOT_ALLOWED  HTTP_NOT_MODIFIED  HTTP_UNAUTHORIZED
+                              HTTP_FORBIDDEN  HTTP_NOT_FOUND  HTTP_BAD_REQUEST
+                              HTTP_INTERNAL_SERVER_ERROR  HTTP_NOT_ACCEPTABLE  HTTP_NO_CONTENT
+                              HTTP_PRECONDITION_FAILED  HTTP_SERVICE_UNAVAILABLE
+                              HTTP_VARIANT_ALSO_VARIES );
+our @SERVER_CONSTS      = qw( MODULE_MAGIC_NUMBER  SERVER_VERSION  SERVER_BUILT );
+our @CONFIG_CONSTS      = qw( DECLINE_CMD );
+our @TYPES_CONSTS       = qw( DIR_MAGIC_TYPE );
+our @OVERRIDE_CONSTS    = qw( OR_NONE  OR_LIMIT  OR_OPTIONS  OR_FILEINFO  OR_AUTHCFG
+                              OR_INDEXES  OR_UNSET  OR_ALL  ACCESS_CONF  RSRC_CONF );
+our @ARGS_HOW_CONSTS    = qw( RAW_ARGS  TAKE1  TAKE2  TAKE12  TAKE3  TAKE23  TAKE123
+                              ITERATE  ITERATE2  FLAG  NO_ARGS );
 
-                     methods    => [ qw( METHODS
-                                         M_CONNECT
-                                         M_DELETE
-                                         M_GET
-                                         M_INVALID
-                                         M_OPTIONS
-                                         M_POST
-                                         M_PUT
-                                         M_TRACE
-                                         M_PATCH
-                                         M_PROPFIND
-                                         M_PROPPATCH
-                                         M_MKCOL
-                                         M_COPY
-                                         M_MOVE
-                                         M_LOCK
-                                         M_UNLOCK ) ],
 
-                     options    => [ qw( OPT_NONE
-                                         OPT_INDEXES
-                                         OPT_INCLUDES
-                                         OPT_SYM_LINKS
-                                         OPT_EXECCGI
-                                         OPT_UNSET
-                                         OPT_INCNOEXEC
-                                         OPT_SYM_OWNER
-                                         OPT_MULTI
-                                         OPT_ALL ) ],
+our @EXPORT_OK   = ( @COMMON_CONSTS, @RESPONSE_CONSTS, @METHOD_CONSTS );
 
-		     satisfy    => [ qw( SATISFY_ALL SATISFY_ANY SATISFY_NOSPEC ) ],
-
-		     remotehost => [ qw( REMOTE_HOST REMOTE_NAME REMOTE_NOLOOKUP REMOTE_DOUBLE_REV ) ],
-
-		     http       => [ qw( HTTP_OK
-                                         HTTP_MOVED_TEMPORARILY
-                                         HTTP_MOVED_PERMANENTLY
-                                         HTTP_METHOD_NOT_ALLOWED
-                                         HTTP_NOT_MODIFIED
-                                         HTTP_UNAUTHORIZED
-                                         HTTP_FORBIDDEN
-                                         HTTP_NOT_FOUND
-                                         HTTP_BAD_REQUEST
-                                         HTTP_INTERNAL_SERVER_ERROR
-                                         HTTP_NOT_ACCEPTABLE
-                                         HTTP_NO_CONTENT
-                                         HTTP_PRECONDITION_FAILED
-                                         HTTP_SERVICE_UNAVAILABLE
-                                         HTTP_VARIANT_ALSO_VARIES ) ],
-
-		     server     => [ qw( MODULE_MAGIC_NUMBER SERVER_VERSION SERVER_BUILT ) ],
-		     config     => [ qw( DECLINE_CMD ) ],
-		     types      => [ qw( DIR_MAGIC_TYPE ) ],
-		     override   => [ qw( OR_NONE
-                                         OR_LIMIT
-                                         OR_OPTIONS
-                                         OR_FILEINFO
-                                         OR_AUTHCFG
-                                         OR_INDEXES
-                                         OR_UNSET
-                                         OR_ALL
-                                         ACCESS_CONF
-                                         RSRC_CONF ) ],
-
-                    args_how    => [ qw( RAW_ARGS
-                                         TAKE1
-                                         TAKE2
-                                         TAKE12
-                                         TAKE3
-                                         TAKE23
-                                         TAKE123
-                                         ITERATE
-                                         ITERATE2
-                                         FLAG
-                                         NO_ARGS ) ],
-    );
+our %EXPORT_TAGS = ( common     => \@COMMON_CONSTS,
+                     response   => [ @COMMON_CONSTS, @RESPONSE_CONSTS ],
+                     methods    => \@METHOD_CONSTS,
+                     options    => \@OPTIONS_CONSTS,
+		     satisfy    => \@SATISFY_CONSTS,
+		     remotehost => \@REMOTEHOST_CONSTS,
+		     http       => \@HTTP_CONSTS,
+		     server     => \@SERVER_CONSTS,
+		     config     => \@CONFIG_CONSTS,
+		     types      => \@TYPES_CONSTS,
+		     override   => \@OVERRIDE_CONSTS,
+		     args_how   => \@ARGS_HOW_CONSTS,   );
 
 
 sub OK                          {  0 }

@@ -2,14 +2,21 @@ use ExtUtils::MakeMaker;
 
 WriteMakefile( NAME          => 'Mock::Apache',
                VERSION_FROM  => 'lib/Mock/Apache.pm',
-               AUTHOR        => 'Andrew Ford <ANDREWF@cpan.org>',
+               ABSTRACT      => 'Mock Apache environment',
+               AUTHOR        => 'Andrew Ford <andrew[at]ford-mason.co.uk>',
+               LICENSE       => 'perl',
                PREREQ_PM     => {
-                   'Apache::FakeTable' => 0,
-                   'parent'            => 0,
-                   'Readonly'          => 0,
-                   'URI'               => 0,
+                   'Apache::FakeTable'     => 0,
+                   'parent'                => 0,
+                   'Readonly'              => 0,
+                   'URI'                   => 0,
                },
                META_ADD      => {
+
+                   # Mock::Apache provides emulated implementations of
+                   # the mod_perl modules, but these should not be
+                   # indexed.
+
                    no_index => {
                        package   => [ qw( Apache
                                           Apache::Connection
