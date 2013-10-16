@@ -2,6 +2,7 @@ package Mock::Apache;
 
 use strict;
 
+use Apache::ConfigParser;
 use Readonly;
 
 our $VERSION = "0.03";
@@ -21,11 +22,18 @@ Readonly our $DEFAULT_DOCUMENT_ROOT => '/var/www/html';
 sub setup_server {
     my ($class, %params) = @_;
 
-    $params{document_root}   ||= $DEFAULT_DOCUMENT_ROOT;
-    $params{server_root}     ||= $DEFAULT_SERVER_ROOT;
+    my $cfg = Apache::ConfigParser->new;
+
+    if (my $config_file = $params{config_file}) {
+	$cfg->parse_file($config_file);
+    }
+
+    $params{document_root}   ||= _get_config_value($cfg, 'DocumentRoot', $DEFAULT_DOCUMENT_ROOT);
+    $params{server_root}     ||= _get_config_value($cfg, 'ServerRoot',   $DEFAULT_SERVER_ROOT);
     $params{server_hostname} ||= $DEFAULT_HOSTNAME;
     $params{server_port}     ||= 80;
-    $params{server_admin}    ||= $DEFAULT_ADMIN . '@' . $params{server_hostname};
+    $params{server_admin}    ||= _get_config_value($cfg, 'ServerAdmin', 
+						   $DEFAULT_ADMIN . '@' . $params{server_hostname});
     $params{gid}             ||= getgrnam('apache') || 48;
     $params{uid}             ||= getpwnam('apache') || 48;
 
@@ -35,6 +43,16 @@ sub setup_server {
 
     return $self;
 }
+
+sub _get_config_value {
+    my ($config, $directive, $default) = @_;
+
+    if ($config and my @dirs = $config->find_down_directive_names($directive)) {
+	return $dirs[0]->value;
+    }
+    return $default;
+}
+
 
 sub new_request {
     my $self = shift;

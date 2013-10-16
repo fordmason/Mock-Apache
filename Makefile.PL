@@ -7,6 +7,7 @@ WriteMakefile( NAME          => 'Mock::Apache',
                LICENSE       => 'perl',
                PREREQ_PM     => {
                    'Apache::FakeTable'     => 0,
+                   'Apache::ConfigParser'  => 0,
                    'parent'                => 0,
                    'Readonly'              => 0,
                    'URI'                   => 0,
