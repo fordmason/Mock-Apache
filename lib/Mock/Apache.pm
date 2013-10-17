@@ -123,7 +123,7 @@ Readonly our @UNIMPLEMENTED       => qw( last
 					 run
 					 args
 					 content
-					 filenam
+					 filename
 					 finfo
 					 get_remote_host
 					 get_remote_logname );
@@ -199,6 +199,10 @@ sub server  { $server };
 
 sub document_root   { shift->server->{document_root}; }
 sub get_server_port { shift->server->{server_port}; }
+
+sub get_remote_host {
+}
+
 
 sub header_in       { shift->{headers_in}->_get_or_set(@_); }
 sub header_out      { shift->{headers_out}->_get_or_set(@_); }
