@@ -1,7 +1,6 @@
 Changes
 MANIFEST
 Makefile.PL
-MYMETA.json
 lib/Mock/Apache.pm
 t/00-basic.t
 README.md
