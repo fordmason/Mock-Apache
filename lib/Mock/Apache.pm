@@ -3,10 +3,16 @@ package Mock::Apache;
 use strict;
 
 use Apache::ConfigParser;
+use Capture::Tiny qw(capture_stdout);
+use Carp;
 use HTTP::Headers;
 use HTTP::Response;
 use Module::Loaded;
 use Readonly;
+
+use parent 'Class::Accessor';
+
+__PACKAGE__->mk_accessors(qw(server));
 
 BEGIN {
     our $VERSION = "0.03";
@@ -74,54 +80,88 @@ sub _get_config_value {
     return $default;
 }
 
+sub mock_client {
+    my ($self, %params) = @_;
 
-sub new_request {
-    my $self = shift;
-    my $req_initializer;
-    if ((scalar @_ % 2) == 1 && ref $_[-1]) {
-        $req_initializer = pop @_;
-        croak('request initializer must be an HTTP:Request object')
-            unless $req_initializer->isa('HTTP::Request');
-    }
-
-    my $r = Apache->_new_request(server => $self->{server}, @_);
-    $r->_initialize_from_http_request_object($req_initializer)
-        if $req_initializer;
-
-    return $r;
+    return Mock::Apache::RemoteClient->new(%params, mock_apache => $self);
 }
 
 
+
 # $mock_apache->execute_handler($handler, $request)
+# $mock_apache->execute_handler($handler, $client, $request)
 
 sub execute_handler {
-    my ($self, $handler, $request) = @_;
+    my ($self, $handler, $client) = (shift, shift, shift);
+
+    my $request;
+    if (ref $client and $client->isa('Apache')) {
+	$request = $client;
+	$client  = $client->_mock_client;
+    }
+    croak "no mock client specified"
+	unless ref $client and $client->isa('Mock::Apache::RemoteClient');
 
     if (!ref $handler) {
 	no strict 'refs';
 	$handler = \&{$handler};
     }
-    if (ref $request eq 'HASH') {
-	$request = $self->new_request(%$request);
-    }
+
+    $request ||= $client->new_request(@_);
+
 
     local($ENV{REMOTE_ADDR}) = $request->subprocess_env('REMOTE_ADDR');
     local($ENV{REMOTE_HOST}) = $request->subprocess_env('REMOTE_HOST');
 
     local $Apache::request = $request;
-    my $rc = $handler->($request);
+    my ($stdout, $rc) = capture_stdout { $handler->($request) };
 
     my $status  = $request->status;
     (my $message = $request->status_line) =~ s/^... //;
-    my $content = $request->content;
     my $headers = HTTP::Headers->new;
     while (my($field, $value) = each %{$request->headers_out}) {
 	$headers->push_header($field, $value);
     }
 
-    return HTTP::Response->new( $status, $message, $headers, $content );
+    return HTTP::Response->new( $status, $message, $headers, $stdout );
 }
 
+##############################################################################
+
+package
+    Mock::Apache::RemoteClient;
+
+use Readonly;
+use Scalar::Util qw(weaken);
+
+use parent qw(Mock::Apache);
+
+Readonly my @PARAMS    => qw(mock_apache REMOTE_ADDR REMOTE_HOST REMOTE_USER);
+Readonly my @ACCESSORS => ( map { lc $_ } @PARAMS );
+
+__PACKAGE__->mk_ro_accessors(@ACCESSORS, 'connection');
+
+sub new {
+    my ($class, %params) = @_;
+
+    $params{REMOTE_ADDR} ||= '10.0.0.10';
+    $params{REMOTE_HOST} ||= 'remote.example.com';
+
+    my $attrs = { map { ( lc $_ => $params{$_} ) } @PARAMS };
+    my $self  = $class->SUPER::new($attrs);
+
+    weaken($self->{mock_apache});
+
+    $self->{connection} ||= Apache::Connection->new($self);
+
+    return $self;
+}
+
+sub new_request {
+    my $self = shift;
+
+    return  Apache->_new_request($self, @_);
+}
 
 
 ##############################################################################
@@ -130,7 +170,9 @@ package                 # hide from PAUSE indexer
     Apache;
 
 use Carp;
+use HTTP::Request;
 use Readonly;
+use Scalar::Util qw(weaken);
 use URI;
 
 use parent qw(Class::Accessor);
@@ -139,14 +181,22 @@ Readonly our @SCALAR_RO_ACCESSORS => qw( connection
                                          server
                                          is_initial_req
 					 is_main
+					 _env
+					 _mock_client
                                         );
-Readonly our @SCALAR_RW_ACCESSORS => ( qw( filename request_time uri ),
+Readonly our @SCALAR_RW_ACCESSORS => ( qw( filename
+                                           request_time
+                                           uri
+					   content
+                                          ),
+
 				       # Server response methods
 				       qw( content_type
                                            content_encoding
                                            content_languages
                                            status
- ) );
+                                          ),
+				     );
 
 Readonly our @UNIMPLEMENTED       => qw( last
 					 main
@@ -156,7 +206,6 @@ Readonly our @UNIMPLEMENTED       => qw( last
 					 lookup_uri
 					 run
 					 args
-					 content
 					 filename
 					 finfo
 					 get_remote_host
@@ -175,23 +224,30 @@ __PACKAGE__->mk_ro_accessors(@SCALAR_RO_ACCESSORS);
 our $server;
 our $request;
 
+# Create a new Apache request
+# Apache->_new_request($mock_client, @params)
+
 sub _new_request {
-    my ($class, %params) = @_;
+    my $class = shift;
+    my $mock_client = shift;
 
     # Set up environment for later - %ENV entries will be localized
 
-    my $env = { GATEWAY_INTERFACE => delete $params{GATEWAY_INTERFACE} || 'CGI-Perl/1.1',
+    my $env = { GATEWAY_INTERFACE => 'CGI-Perl/1.1',
 		MOD_PERL          => '1.3',
 		SERVER_SOFTWARE   => 'Apache emulation (Mock::Apache)',
-		REMOTE_ADDR       => delete $params{REMOTE_ADDR} || '42.42.42.42',
-		REMOTE_HOST       => delete $params{REMOTE_HOST} || 'remote.example.com' };
+		REMOTE_ADDR       => $mock_client->remote_addr,
+		REMOTE_HOST       => $mock_client->remote_host };
 
     my $r = $class->SUPER::new( { request_time   => time,
 				  is_initial_req => 1,
 				  is_main        => 1,
-				  %params,
+				  server         => $mock_client->mock_apache->server,
+				  connection     => $mock_client->connection,
+				  _mock_client   => $mock_client,
 				  _env           => $env  } );
 
+    $r->{log}           ||= $r->{server}->log;
     $r->{notes}           = Apache::Table->new($r);
     $r->{pnotes}          = Apache::Table->new($r);
     $r->{headers_in}      = Apache::Table->new($r);
@@ -199,9 +255,13 @@ sub _new_request {
     $r->{err_headers_out} = Apache::Table->new($r);
     $r->{subprocess_env}  = Apache::Table->new($r);
 
-    my $server = $r->{server} ||= Apache::Server->new();
-    $r->{connection} ||= Apache::Connection->new();
-    $r->{log}        ||= $r->server->log;
+    # Having set up a skeletal request object, see about fleshing out the detail
+
+    my $initializer = (@_ == 1) ? shift : HTTP::Request->new(@_);
+    croak('request initializer must be an HTTP:Request object')
+	unless $initializer->isa('HTTP::Request');
+    $r->_initialize_from_http_request_object($initializer);
+
 
     # Expand the environment with information from server object
 
@@ -214,19 +274,38 @@ sub _new_request {
     # PATH_TRANSLATED, QUERY_STRING, REMOTE_IDENT, REMOTE_USER,
     # REQUEST_METHOD, SCRIPT_NAME, SERVER_PROTOCOL, UNIQUE_ID
 
-    while (my($key, $val) = each %{$params{headers} || {}}) {
-	$r->{headers_in}->set($key, $val);
-	(my $header_env = "HTTP_$key") =~ s/-/_/g;
-	$r->{subprocess_env}->set($header_env, $val);
-    }
-
     while (my($key, $val) = each %$env) {
 	$r->{subprocess_env}->set($key, $val);
     }
 
-
     return $r;
 }
+
+sub _initialize_from_http_request_object {
+    my ($r, $http_req) = @_;
+
+    $DB::single=1;
+
+    my $uri = $http_req->uri;
+    $uri = URI->new($uri) unless ref $uri;
+
+    $r->{method}  = $http_req->method;
+    ($r->{uri}    = $uri->path) =~ s{^/}{};
+    $r->{content} = $http_req->content;
+
+    $http_req->headers->scan( sub {
+				  my ($key, $value) = @_;
+				  $r->headers_in->set($key, $value);
+				  (my $header_env = "HTTP_$key") =~ s/-/_/g;
+				  $r->{subprocess_env}->set($header_env, $value);
+			      } );
+
+    return;
+}
+
+
+
+
 
 sub request { $request };
 sub server  { $server };
@@ -248,7 +327,7 @@ sub err_headers_out { shift->{err_headers_out}->_hash_or_list; }
 
 # TODO: get the method out of the request initialization
 sub method        { 'GET' }
-sub method_number { &Apache::Constants::M_GET }
+sub method_number { eval '&Apache::Constants::M_' . $_[0]->{method}; }
 sub args          { return () }
 sub status_line   {
     my $r = shift;
@@ -326,21 +405,6 @@ sub lookup_file {
 }
 
 
-
-
-sub _initialize_from_http_request_object {
-    my ($r, $http_req) = @_;
-
-    $DB::single=1;
-
-    my $uri = $http_req->uri;
-    $uri = URI->new($uri) unless ref $uri;
-
-    $r->{uri} = $uri->path;
-    return;
-}
-
-
 sub _unimplemented {
     my ($r) = @_;
 
@@ -350,6 +414,13 @@ sub _unimplemented {
     croak  "$subname not implemented at $file, line $line";
     return;
 }
+
+package
+    Apache::STDOUT;
+
+
+
+
 
 ##############################################################################
 
@@ -478,9 +549,16 @@ sub names {
 package
     Apache::Connection;
 
+use Scalar::Util qw(weaken);
+use parent qw(Class::Accessor);
+
+__PACKAGE__->mk_ro_accessors(qr(_mock_client));
+
 sub new {
-    my ($class, %params) = @_;
-    return bless \%params, $class;
+    my ($class, $mock_client) = @_;
+    my $self = bless { _mock_client => $mock_client }, $class;
+    weaken $self->{_mock_client};
+    return $self;
 }
 
 sub aborted { return $_[0]->{_aborted} }
@@ -501,14 +579,9 @@ sub remote_addr {
     $DB::single=1;
     return;
 }
-sub remote_host {
-    $DB::single=1;
-    return;
-}
-sub remote_ip {
-    $DB::single=1;
-    return;
-}
+sub remote_host { $_->_mock_client->remote_host; }
+sub remote_ip   { $_->_mock_client->remote_addr; }
+
 sub remote_logname {
     $DB::single=1;
     return;

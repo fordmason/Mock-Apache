@@ -3,5 +3,6 @@
 *.old
 Makefile
 Mock-Apache-*
+MYMETA.*
 blib
 pm_to_blib

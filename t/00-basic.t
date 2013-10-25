@@ -15,7 +15,8 @@ use Apache::Constants qw(:common);
 my $start_time = time;
 
 my $mock_apache = Mock::Apache->setup_server;
-my $request     = $mock_apache->new_request('http://example.com/index.html');
+my $mock_client = $mock_apache->mock_client();
+my $request     = $mock_client->new_request(GET => 'http://example.com/index.html');
 
 my $server  = $request->server;
 isa_ok($server, 'Apache::Server');
