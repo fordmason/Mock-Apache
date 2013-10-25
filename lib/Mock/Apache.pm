@@ -3,9 +3,22 @@ package Mock::Apache;
 use strict;
 
 use Apache::ConfigParser;
+use HTTP::Headers;
+use HTTP::Response;
+use Module::Loaded;
 use Readonly;
 
-our $VERSION = "0.03";
+BEGIN {
+    our $VERSION = "0.03";
+
+    # Lie about the following modules being loaded
+
+    mark_as_loaded($_)
+	for qw( Apache  Apache::Server  Apache::Connection  Apache::Log
+                Apache::Table  Apache::URI  Apache::Util  Apache::Constants
+                Apache::ModuleConfig  Apache::Symbol
+                Apache::Request  Apache::Upload  Apache::Cookie );
+}
 
 Readonly our $DEFAULT_HOSTNAME => 'server.example.com';
 Readonly our $DEFAULT_ADDR     => '22.22.22.22';
@@ -15,6 +28,14 @@ Readonly our $DEFAULT_ADMIN    => 'webmaster';
 
 Readonly our $DEFAULT_SERVER_ROOT   => '/etc/httpd';
 Readonly our $DEFAULT_DOCUMENT_ROOT => '/var/www/html';
+
+# I am still playing with the API to Mock::Apache.
+# I envisage having methods to:
+#   * set up the mock server
+#   * run a request through the server
+#   * create an apache request object
+
+
 
 
 # Set up a mock Apache server
@@ -63,8 +84,7 @@ sub new_request {
             unless $req_initializer->isa('HTTP::Request');
     }
 
-    my %params = @_;
-    my $r = Apache->new(server => $self->{server}, @_);
+    my $r = Apache->_new_request(server => $self->{server}, @_);
     $r->_initialize_from_http_request_object($req_initializer)
         if $req_initializer;
 
@@ -82,13 +102,24 @@ sub execute_handler {
 	$handler = \&{$handler};
     }
     if (ref $request eq 'HASH') {
-	$request = $self->new_request(%$request); 
+	$request = $self->new_request(%$request);
     }
-    
+
     local($ENV{REMOTE_ADDR}) = $request->subprocess_env('REMOTE_ADDR');
     local($ENV{REMOTE_HOST}) = $request->subprocess_env('REMOTE_HOST');
 
-    return $handler->($request);
+    local $Apache::request = $request;
+    my $rc = $handler->($request);
+
+    my $status  = $request->status;
+    (my $message = $request->status_line) =~ s/^... //;
+    my $content = $request->content;
+    my $headers = HTTP::Headers->new;
+    while (my($field, $value) = each %{$request->headers_out}) {
+	$headers->push_header($field, $value);
+    }
+
+    return HTTP::Response->new( $status, $message, $headers, $content );
 }
 
 
@@ -98,6 +129,7 @@ sub execute_handler {
 package                 # hide from PAUSE indexer
     Apache;
 
+use Carp;
 use Readonly;
 use URI;
 
@@ -112,7 +144,9 @@ Readonly our @SCALAR_RW_ACCESSORS => ( qw( filename request_time uri ),
 				       # Server response methods
 				       qw( content_type
                                            content_encoding
-                                           content_languages ) );
+                                           content_languages
+                                           status
+ ) );
 
 Readonly our @UNIMPLEMENTED       => qw( last
 					 main
@@ -134,14 +168,14 @@ __PACKAGE__->mk_ro_accessors(@SCALAR_RO_ACCESSORS);
 
 {
     no strict 'refs';
-    *{"Mock::Apache::$_"} = \&_unimplemented
+    *{"Mock::Apache::$_"} = sub { _unimplemented() }
 	for @UNIMPLEMENTED;
 }
 
 our $server;
 our $request;
 
-sub new {
+sub _new_request {
     my ($class, %params) = @_;
 
     # Set up environment for later - %ENV entries will be localized
@@ -206,6 +240,31 @@ sub err_header_out  { shift->{err_headers_out}->_get_or_set(@_); }
 sub headers_in      { shift->{headers_in}->_hash_or_list; }
 sub headers_out     { shift->{headers_out}->_hash_or_list; }
 sub err_headers_out { shift->{err_headers_out}->_hash_or_list; }
+
+
+# TODO: get the method out of the request initialization
+sub method        { 'GET' }
+sub method_number { &Apache::Constants::M_GET }
+sub args          { return () }
+sub status_line   {
+    my $r = shift;
+    my $status_line = $r->{status_line};
+    if (@_) {
+	if (($r->{status_line} = shift) =~ m{^(\d\d\d)}x) {
+	    $r->status($1);
+	}
+    }
+    return $status_line;
+}
+
+sub print {
+    my ($r, @list) = @_;
+    foreach my $item (@list) {
+	$r->{content} .= ref $item eq 'SCALAR' ? $$item : $item;
+    }
+    return;
+}
+
 
 sub notes {
     my $r = shift;
@@ -280,9 +339,93 @@ sub _initialize_from_http_request_object {
 
 sub _unimplemented {
     my ($r) = @_;
+
+    $DB::single=1;
+    my $subname = (caller(0))[3];
+    my ($file, $line) = (caller(1))[1..2];
+    croak  "$subname not implemented at $file, line $line";
+    return;
+}
+
+##############################################################################
+
+package
+    Apache::Request;
+
+use parent 'Apache';
+
+sub new {
+    my ($class, $r, %params) = @_;
+
+    $r->{$_} = $params{$_}
+	for qw(POST_MAX DISABLE_UPLOADS TEMP_DIR HOOK_DATA UPLOAD_HOOK);
+
+    return bless $r, $class;
+}
+
+sub instance {
+}
+
+
+sub parse {
+    my $apr = shift;
     $DB::single=1;
     return;
 }
+
+
+sub param {
+    my $apr = shift;
+
+}
+
+
+sub params {
+    my $apr = shift;
+}
+
+sub upload {
+}
+
+
+package Apache::Upload;
+
+package Apache::Cookie;
+
+sub new {
+}
+
+sub bake {
+}
+
+sub parse {
+}
+
+sub fetch {
+}
+
+sub as_string {
+}
+
+sub name {
+}
+
+sub value {
+}
+
+sub domain {
+}
+
+sub path {
+}
+
+sub expires {
+}
+
+sub secure {
+}
+
+
 
 ##############################################################################
 
@@ -334,6 +477,41 @@ package
 sub new {
     my ($class, %params) = @_;
     return bless \%params, $class;
+}
+
+sub aborted { return $_[0]->{_aborted} }
+sub auth_type {
+    $DB::single=1;
+    return;
+}
+sub fileno {
+    croak("fileno is not implemented");
+    $DB::single=1;
+    return;
+}
+sub local_addr {
+    $DB::single=1;
+    return;
+}
+sub remote_addr {
+    $DB::single=1;
+    return;
+}
+sub remote_host {
+    $DB::single=1;
+    return;
+}
+sub remote_ip {
+    $DB::single=1;
+    return;
+}
+sub remote_logname {
+    $DB::single=1;
+    return;
+}
+sub user {
+    $DB::single=1;
+    return;
 }
 
 ##############################################################################
@@ -439,6 +617,13 @@ sub validate_password {
 }
 
 
+package
+    Apache::ModuleConfig;
+
+sub new {
+}
+sub get {
+}
 
 
 ##############################################################################
@@ -453,9 +638,9 @@ our @RESPONSE_CONSTS    = qw( DOCUMENT_FOLLOWS  MOVED  REDIRECT  USE_LOCAL_COPY
 			      BAD_REQUEST  BAD_GATEWAY  RESPONSE_CODES  NOT_IMPLEMENTED
 			      CONTINUE  NOT_AUTHORITATIVE );
 our @METHOD_CONSTS      = qw( METHODS  M_CONNECT  M_DELETE  M_GET  M_INVALID
-                             M_OPTIONS  M_POST  M_PUT  M_TRACE  M_PATCH
-                             M_PROPFIND  M_PROPPATCH  M_MKCOL  M_COPY
-                             M_MOVE  M_LOCK  M_UNLOCK );
+                              M_OPTIONS  M_POST  M_PUT  M_TRACE  M_PATCH
+                              M_PROPFIND  M_PROPPATCH  M_MKCOL  M_COPY
+                              M_MOVE  M_LOCK  M_UNLOCK );
 our @OPTIONS_CONSTS     = qw( OPT_NONE  OPT_INDEXES  OPT_INCLUDES  OPT_SYM_LINKS
                               OPT_EXECCGI  OPT_UNSET  OPT_INCNOEXEC
                               OPT_SYM_OWNER  OPT_MULTI  OPT_ALL );
@@ -476,7 +661,9 @@ our @ARGS_HOW_CONSTS    = qw( RAW_ARGS  TAKE1  TAKE2  TAKE12  TAKE3  TAKE23  TAK
                               ITERATE  ITERATE2  FLAG  NO_ARGS );
 
 
-our @EXPORT_OK   = ( @COMMON_CONSTS, @RESPONSE_CONSTS, @METHOD_CONSTS );
+our @EXPORT_OK   = ( @COMMON_CONSTS, @RESPONSE_CONSTS, @METHOD_CONSTS, @OPTIONS_CONSTS, @SATISFY_CONSTS,
+                     @REMOTEHOST_CONSTS, @HTTP_CONSTS, @SERVER_CONSTS, @CONFIG_CONSTS, @TYPES_CONSTS,
+		     @OVERRIDE_CONSTS, @ARGS_HOW_CONSTS);
 
 our %EXPORT_TAGS = ( common     => \@COMMON_CONSTS,
                      response   => [ @COMMON_CONSTS, @RESPONSE_CONSTS ],
@@ -586,7 +773,7 @@ Mock::Apache - mock Apache environment for testing and debugging
 C<Mock::Apache> is a mock framework for testing and debugging mod_perl
 1.x applications.  It is based on C<Apache::FakeRequest> but goes
 beyond that module, attempting to provide a relatively comprehensive
-mocking of the mod_perl environment.  
+mocking of the mod_perl environment.
 
 The module is still very much at an alpha stage, with much of the
 Apache::* classes missing.

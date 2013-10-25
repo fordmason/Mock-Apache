@@ -9,12 +9,8 @@ use lib "$Bin/../lib";
 BEGIN {
     use_ok('Mock::Apache')
 	or die 'cannot load Mock::Apache';
-
-    # don't need to use Apache::Constants, as it is implemented in
-    # Mock::Apache
-
-    Apache::Constants->import(':common');
 }
+use Apache::Constants qw(:common);
 
 my $start_time = time;
 
