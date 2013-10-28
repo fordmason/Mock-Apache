@@ -127,6 +127,8 @@ sub execute_handler {
 }
 
 ##############################################################################
+#
+# Package to model a remote client
 
 package
     Mock::Apache::RemoteClient;
@@ -174,6 +176,7 @@ use HTTP::Request;
 use Readonly;
 use Scalar::Util qw(weaken);
 use URI;
+use URI::QueryParam;
 
 use parent qw(Class::Accessor);
 
@@ -182,6 +185,7 @@ Readonly our @SCALAR_RO_ACCESSORS => qw( connection
                                          is_initial_req
 					 is_main
 					 _env
+					 _uri
 					 _mock_client
                                         );
 Readonly our @SCALAR_RW_ACCESSORS => ( qw( filename
@@ -205,7 +209,6 @@ Readonly our @UNIMPLEMENTED       => qw( last
 					 lookup_file
 					 lookup_uri
 					 run
-					 args
 					 filename
 					 finfo
 					 get_remote_host
@@ -289,6 +292,7 @@ sub _initialize_from_http_request_object {
     my $uri = $http_req->uri;
     $uri = URI->new($uri) unless ref $uri;
 
+    $r->{_uri}    = $uri;
     $r->{method}  = $http_req->method;
     ($r->{uri}    = $uri->path) =~ s{^/}{};
     $r->{content} = $http_req->content;
@@ -303,32 +307,65 @@ sub _initialize_from_http_request_object {
     return;
 }
 
-
-
-
-
+# $r = Apache->request([$r])                                          # MPPR p23
 sub request { $request };
+
+# $s = $r->server                                                     # MPPR p38
+# $s = Apache->server
 sub server  { $server };
 
+# $str = $r->document_root                                            # MPPR p32
 sub document_root   { shift->server->{document_root}; }
+
+# $num = $r->server_port                                              # MPPR p33
 sub get_server_port { shift->server->{server_port}; }
 
+# $str = $r->get_remote_host([$lookup_type])                          # MPPR p25
+# FIXME: emulate lookups properly
 sub get_remote_host {
+    my ($r, $type) = @_;
+    if (@_ == 0 or $type == $Apache::Constant::REMOTE_HOST) {
+	return $r->_mock_client->remote_host;
+    }
+    elsif ($type == $Apache::Constant::REMOTE_ADDR) {
+	return $r->_mock_client->remote_addr;
+    }
+    elsif ($type == $Apache::Constant::REMOTE_NOLOOKUP) {
+	return $r->_mock_client->remote_addr;
+    }
+    elsif ($type == $Apache::Constant::REMOTE_DOUBLE_REV) {
+	return $r->_mock_client->remote_addr;
+    }
+    else {
+	croak "unknown lookup type";
+    }
 }
 
 
+# $str = $r->header_in($key[, $value])                                # MPPR p26
 sub header_in       { shift->{headers_in}->_get_or_set(@_); }
 sub header_out      { shift->{headers_out}->_get_or_set(@_); }
 sub err_header_out  { shift->{err_headers_out}->_get_or_set(@_); }
+
+# {$href|%hash} = $r->headers_in                                      # MPPR p26
 sub headers_in      { shift->{headers_in}->_hash_or_list; }
 sub headers_out     { shift->{headers_out}->_hash_or_list; }
 sub err_headers_out { shift->{err_headers_out}->_hash_or_list; }
 
 
-# TODO: get the method out of the request initialization
+# $str = $r->method([$newval])                                        # MPPR p26
+# FIXME: method should be settable
 sub method        { 'GET' }
+
+# $num = $r->method_number([$newval])                                 # MPPR p26
 sub method_number { eval '&Apache::Constants::M_' . $_[0]->{method}; }
-sub args          { return () }
+
+# {$str|@arr} = $r->args                                              # MPPR p24
+# FIXME: query_form_hash does not return the right data if keys are repeated
+sub args          { return wantarray ? $self->_uri->query_form_hash : $self->_uri->query }
+
+
+# $str = $r->status_line([$newstr])
 sub status_line   {
     my $r = shift;
     my $status_line = $r->{status_line};
@@ -340,6 +377,7 @@ sub status_line   {
     return $status_line;
 }
 
+# FIXME: need better implementation of print
 sub print {
     my ($r, @list) = @_;
     foreach my $item (@list) {
@@ -349,12 +387,18 @@ sub print {
 }
 
 
+# {$str|$href} = $r->notes([$key[,$val]])                             # MPPR p31
+# with no arguments returns a reference to the notes table
+# otherwise gets or sets the named note
 sub notes {
     my $r = shift;
     my $notes = $r->{notes};
     return @_ ? $notes->_get_or_set(@_) : $notes->_hash_or_list;
 }
 
+# {$str|$href} = $r->pnotes([$key[,$val]])                            # MPPR p31
+# with no arguments returns a reference to the pnotes table
+# otherwise gets or sets the named pnote
 sub pnotes {
     my $r = shift;
     my $pnotes = $r->{pnotes};
@@ -423,6 +467,8 @@ package
 
 
 ##############################################################################
+#
+# Implementation of Apache::Request - a.k.a. libapreq
 
 package
     Apache::Request;
@@ -463,9 +509,11 @@ sub upload {
 }
 
 
-package Apache::Upload;
+package
+    Apache::Upload;
 
-package Apache::Cookie;
+package
+    Apache::Cookie;
 
 sub new {
 }
@@ -592,6 +640,7 @@ sub user {
 }
 
 ##############################################################################
+#
 
 package
     Apache::Log;
