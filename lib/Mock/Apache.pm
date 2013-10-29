@@ -245,26 +245,12 @@ use URI::QueryParam;
 
 use parent qw(Class::Accessor);
 
-Readonly our @SCALAR_RO_ACCESSORS => qw( _env
-                                         _uri
-                                         _mock_client
-					 _output
-                                        );
-Readonly our @SCALAR_RW_ACCESSORS => ( qw( request_time
-                                          ),
-
-                                       # Server response methods
-                                       qw( content_type
-                                           content_encoding
-                                           content_languages
-                                           status
-                                          ),
-                                     );
-
-
-__PACKAGE__->mk_accessors(@SCALAR_RW_ACCESSORS);
-__PACKAGE__->mk_ro_accessors(@SCALAR_RO_ACCESSORS);
-
+__PACKAGE__->mk_ro_accessors(qw( log
+				 _env
+				 _uri
+				 _mock_client
+				 _output
+			      ));
 
 our $server;
 our $request;
@@ -614,6 +600,29 @@ sub cgi_header_out {
     NYI_DEBUG('$r->cgi_header_out');
 }
 
+# $str = $r->content_encoding([$newval])                               MPPR p28
+sub content_encoding {
+    my ($r, $newval) = @_;
+    my $encoding = $r->{content_encoding};
+    DEBUG('$r->content_encoding(%s) => \'%s\'', @_ > 1 ? "'$newval'" : '', $encoding);
+    $r->{content_encoding} = $newval if @_ > 1;
+    return $encoding;
+}
+
+sub content_languages {
+    NYI_DEBUG('$r->content_languages');
+}
+
+# $str = $r->content_type([$newval])                                   MPPR p28
+sub content_type {
+    my ($r, $newval) = @_;
+    my $content_type = $r->{content_type};
+    DEBUG('$r->content_type(%s) => \'%s\'', @_ > 1 ? "'$newval'" : '', $content_type);
+    $r->{content_type} = $newval if @_ > 1;
+    return $content_type;
+}
+
+
 # $num = $r->request_time                                              MPPR p29
 # Returns the time at which the request started as a Unix time value.
 sub request_time {
@@ -623,12 +632,24 @@ sub request_time {
     return $num;
 }
 
+# $num = $r->status([$newval])                                         MPPR p29
+# Gets or sets the status code of the outgoing response.  Symbolic names for
+# all standard status codes are provided by the Apache::Constants module.
+sub status   {
+    my ($r, $newval) = @_;
+    my $status = $r->{status};
+    DEBUG('$r->status(%s) => %d', @_ > 1 ? "$newval" : '', $status);
+    $r->{status} = $r->{status_line} = $newval if @_ > 1;
+    return $status;
+}
+
 # $str = $r->status_line([$newstr])                                    MPPR p29
 sub status_line   {
-    my $r = shift;
+    my ($r, $newval) = @_;
     my $status_line = $r->{status_line};
+    DEBUG('$r->status_line(%s) => %d', @_ > 1 ? "$newval" : '', $status_line);
     if (@_) {
-        if (($r->{status_line} = shift) =~ m{^(\d\d\d)}x) {
+        if (($r->{status_line} = $status_line) =~ m{^(\d\d\d)}x) {
             $r->status($1);
         }
     }
@@ -871,17 +892,42 @@ sub new {
 
 sub log_error {}
 sub log_reason {}
+
 sub warn {
-    print STDERR @_, "\n";
+    my $r = shift;
+    print STDERR "WARN: ", @_, "\n";
 }
 
 sub emerg {
-    print STDERR @_, "\n";
+    my $r = shift;
+    print STDERR "EMERG: ", @_, "\n";
 }
 
 sub alert {
-    print STDERR @_, "\n";
+    my $r = shift;
+    print STDERR "ALERT: ", @_, "\n";
 }
+
+sub error {
+    my $r = shift;
+    print STDERR "ERROR: ", @_, "\n";
+}
+
+sub notice {
+    my $r = shift;
+    print STDERR "NOTICE: ", @_, "\n";
+}
+
+sub info {
+    my $r = shift;
+    print STDERR "INFO: ", @_, "\n";
+}
+
+sub debug {
+    my $r = shift;
+    print STDERR "DEBUG: ", @_, "\n";
+}
+
 
 ##############################################################################
 #
