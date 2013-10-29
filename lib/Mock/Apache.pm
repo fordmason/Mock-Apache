@@ -1212,7 +1212,7 @@ use parent 'Apache';
 sub new {
     my ($class, $r, %params) = @_;
 
-    DEBUG('Apache::Request->new => %s', $r);
+    DEBUG('Apache::Request->new(%s) => %s', join(',', map { "$_=>'$params{$_}'" } keys %params ), $r);
     $r->{$_} = $params{$_}
         for qw(POST_MAX DISABLE_UPLOADS TEMP_DIR HOOK_DATA UPLOAD_HOOK);
 
@@ -1220,6 +1220,7 @@ sub new {
 }
 
 sub instance {
+    NYI_DEBUG('$apr->instance')
 }
 
 
@@ -1245,12 +1246,48 @@ sub upload {
     NYI_DEBUG('$apr->upload')
 }
 
+###############################################################################
 
 package
     Apache::Upload;
 
+sub name {
+    NYI_DEBUG('Apache::Upload->name');
+}
 
+sub filename {
+    NYI_DEBUG('Apache::Upload->filename');
+}
 
+sub fh {
+    NYI_DEBUG('Apache::Upload->fh');
+}
+
+sub size {
+    NYI_DEBUG('Apache::Upload->size');
+}
+
+sub info {
+    NYI_DEBUG('Apache::Upload->info');
+}
+
+sub type {
+    NYI_DEBUG('Apache::Upload->type');
+}
+
+sub next {
+    NYI_DEBUG('Apache::Upload->next');
+}
+
+sub tempname {
+    NYI_DEBUG('Apache::Upload->tempname');
+}
+
+sub link {
+    NYI_DEBUG('Apache::Upload->link');
+}
+
+################################################################################
 
 package
     Apache::Cookie;
