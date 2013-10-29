@@ -1,5 +1,11 @@
 Revision history for Perl extension Mock::Apache.
 
+0.04  2013-10-29
+        - expanded implementation
+
+0.03  2013-10-28
+        - expanded implementation
+
 0.02  Tue Oct 15 16:40:00 2013
         - Added meta-information to suppress PAUSE indexing of
           Apache::* namespaces

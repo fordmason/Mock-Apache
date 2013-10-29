@@ -1,3 +1,12 @@
+# Mock::Apache - a package to mock the mod_perl 1.x environment
+#
+# Page references, marked MPPR pX, refer to my book: "Mod_perl Pocket
+# Reference", Andrew Ford, O'Reilly & Associates, 2001, 0-596-00047-2
+#
+# Copyright (C) 2013, Andrew Ford.  All rights reserved.
+# This library is free software; you can redistribute it and/or
+# modify it under the same terms as Perl itself.
+
 package Mock::Apache;
 
 use strict;
@@ -14,16 +23,59 @@ use parent 'Class::Accessor';
 
 __PACKAGE__->mk_accessors(qw(server));
 
+our $VERSION = "0.04";
+our $DEBUG;
+
 BEGIN {
-    our $VERSION = "0.03";
+
+    Readonly our @APACHE_CLASSES
+	=> qw( Apache  Apache::Server  Apache::Connection  Apache::Log
+	       Apache::Table  Apache::URI  Apache::Util  Apache::Constants
+	       Apache::ModuleConfig  Apache::Symbol
+	       Apache::Request  Apache::Upload  Apache::Cookie );
+
 
     # Lie about the following modules being loaded
-
     mark_as_loaded($_)
-	for qw( Apache  Apache::Server  Apache::Connection  Apache::Log
-                Apache::Table  Apache::URI  Apache::Util  Apache::Constants
-                Apache::ModuleConfig  Apache::Symbol
-                Apache::Request  Apache::Upload  Apache::Cookie );
+        for @APACHE_CLASSES;
+
+    # alias the DEBUG() function into each class
+    sub DEBUG {
+	my ($message, @args) = @_;
+
+	return unless $Mock::Apache::DEBUG;
+	$message .= "\n" unless $message =~ qr{\n$};
+	printf STDERR "DEBUG: $message", @args;
+	if ($DEBUG > 1) {
+	    my ($package, $file, $line, $subr) = ((caller(1))[0..2], (caller(2))[3]);
+	    if ($file eq __FILE__) {
+		($package, $file, $line, $subr) = ((caller(2))[0..2], (caller(3))[3]);
+	    }
+	    print STDERR "       from $subr at line $line of $file\n";
+	}
+
+	return;
+    }
+
+    sub NYI_DEBUG {
+	my ($message, @args) = @_;
+
+	$message .= "\n" unless $message =~ qr{\n$};
+	printf STDERR "DEBUG: $message", @args;
+	if ($DEBUG > 1) {
+	    my ($package, $file, $line, $subr) = ((caller(1))[0..2], (caller(2))[3]);
+	    if ($file eq __FILE__) {
+		($package, $file, $line, $subr) = ((caller(2))[0..2], (caller(3))[3]);
+	    }
+	    print STDERR "       from $subr at line $line of $file\n";
+	}
+	$DB::single = 1;
+	croak((caller)[3] . " - NOT YET IMPLEMENTED");
+    }
+
+    no strict 'refs';
+    *{"${_}::DEBUG"} = \&DEBUG for @APACHE_CLASSES;
+    *{"${_}::NYI_DEBUG"} = \&NYI_DEBUG for @APACHE_CLASSES;
 }
 
 Readonly our $DEFAULT_HOSTNAME => 'server.example.com';
@@ -52,21 +104,24 @@ sub setup_server {
     my $cfg = Apache::ConfigParser->new;
 
     if (my $config_file = $params{config_file}) {
-	$cfg->parse_file($config_file);
+        $cfg->parse_file($config_file);
     }
+
+    $DEBUG = delete $params{DEBUG};
 
     $params{document_root}   ||= _get_config_value($cfg, 'DocumentRoot', $DEFAULT_DOCUMENT_ROOT);
     $params{server_root}     ||= _get_config_value($cfg, 'ServerRoot',   $DEFAULT_SERVER_ROOT);
     $params{server_hostname} ||= $DEFAULT_HOSTNAME;
     $params{server_port}     ||= 80;
     $params{server_admin}    ||= _get_config_value($cfg, 'ServerAdmin', 
-						   $DEFAULT_ADMIN . '@' . $params{server_hostname});
+                                                   $DEFAULT_ADMIN . '@' . $params{server_hostname});
     $params{gid}             ||= getgrnam('apache') || 48;
     $params{uid}             ||= getpwnam('apache') || 48;
 
-    $Apache::server = Apache::Server->new(%params);
 
-    my $self = bless { server => $Apache::server, %params }, $class;
+    my $self = bless { %params }, $class;
+
+    $self->{server} = $Apache::server = Apache::Server->new($self, %params);
 
     return $self;
 }
@@ -75,7 +130,7 @@ sub _get_config_value {
     my ($config, $directive, $default) = @_;
 
     if ($config and my @dirs = $config->find_down_directive_names($directive)) {
-	return $dirs[0]->value;
+        return $dirs[0]->value;
     }
     return $default;
 }
@@ -88,6 +143,7 @@ sub mock_client {
 
 
 
+
 # $mock_apache->execute_handler($handler, $request)
 # $mock_apache->execute_handler($handler, $client, $request)
 
@@ -96,34 +152,43 @@ sub execute_handler {
 
     my $request;
     if (ref $client and $client->isa('Apache')) {
-	$request = $client;
-	$client  = $client->_mock_client;
+        $request = $client;
+        $client  = $client->_mock_client;
     }
     croak "no mock client specified"
-	unless ref $client and $client->isa('Mock::Apache::RemoteClient');
+        unless ref $client and $client->isa('Mock::Apache::RemoteClient');
 
     if (!ref $handler) {
-	no strict 'refs';
-	$handler = \&{$handler};
+        no strict 'refs';
+        $handler = \&{$handler};
     }
 
     $request ||= $client->new_request(@_);
 
+    my $saved_debug = $Mock::Apache::DEBUG;
+    local $Mock::Apache::DEBUG = 0;
 
     local($ENV{REMOTE_ADDR}) = $request->subprocess_env('REMOTE_ADDR');
     local($ENV{REMOTE_HOST}) = $request->subprocess_env('REMOTE_HOST');
 
     local $Apache::request = $request;
-    my ($stdout, $rc) = capture_stdout { $handler->($request) };
+
+    my $rc = eval {
+	local $Mock::Apache::DEBUG = $saved_debug;
+	$handler->($request);
+    };
+    $request->status_line('500 Internal server error')
+	if $@;
 
     my $status  = $request->status;
-    (my $message = $request->status_line) =~ s/^... //;
+    (my $message = $request->status_line || '') =~ s/^... //;
     my $headers = HTTP::Headers->new;
     while (my($field, $value) = each %{$request->headers_out}) {
-	$headers->push_header($field, $value);
+        $headers->push_header($field, $value);
     }
+    my $output = $request->_output;
 
-    return HTTP::Response->new( $status, $message, $headers, $stdout );
+    return HTTP::Response->new( $status, $message, $headers, $output );
 }
 
 ##############################################################################
@@ -180,49 +245,26 @@ use URI::QueryParam;
 
 use parent qw(Class::Accessor);
 
-Readonly our @SCALAR_RO_ACCESSORS => qw( connection
-                                         server
-                                         is_initial_req
-					 is_main
-					 _env
-					 _uri
-					 _mock_client
+Readonly our @SCALAR_RO_ACCESSORS => qw( _env
+                                         _uri
+                                         _mock_client
+					 _output
                                         );
-Readonly our @SCALAR_RW_ACCESSORS => ( qw( filename
-                                           request_time
-                                           uri
-					   content
+Readonly our @SCALAR_RW_ACCESSORS => ( qw( request_time
                                           ),
 
-				       # Server response methods
-				       qw( content_type
+                                       # Server response methods
+                                       qw( content_type
                                            content_encoding
                                            content_languages
                                            status
                                           ),
-				     );
-
-Readonly our @UNIMPLEMENTED       => qw( last
-					 main
-					 next
-					 prev
-					 lookup_file
-					 lookup_uri
-					 run
-					 filename
-					 finfo
-					 get_remote_host
-					 get_remote_logname );
+                                     );
 
 
 __PACKAGE__->mk_accessors(@SCALAR_RW_ACCESSORS);
 __PACKAGE__->mk_ro_accessors(@SCALAR_RO_ACCESSORS);
 
-{
-    no strict 'refs';
-    *{"Mock::Apache::$_"} = sub { _unimplemented() }
-	for @UNIMPLEMENTED;
-}
 
 our $server;
 our $request;
@@ -237,32 +279,38 @@ sub _new_request {
     # Set up environment for later - %ENV entries will be localized
 
     my $env = { GATEWAY_INTERFACE => 'CGI-Perl/1.1',
-		MOD_PERL          => '1.3',
-		SERVER_SOFTWARE   => 'Apache emulation (Mock::Apache)',
-		REMOTE_ADDR       => $mock_client->remote_addr,
-		REMOTE_HOST       => $mock_client->remote_host };
+                MOD_PERL          => '1.3',
+                SERVER_SOFTWARE   => 'Apache emulation (Mock::Apache)',
+                REMOTE_ADDR       => $mock_client->remote_addr,
+                REMOTE_HOST       => $mock_client->remote_host };
 
     my $r = $class->SUPER::new( { request_time   => time,
-				  is_initial_req => 1,
-				  is_main        => 1,
-				  server         => $mock_client->mock_apache->server,
-				  connection     => $mock_client->connection,
-				  _mock_client   => $mock_client,
-				  _env           => $env  } );
+                                  is_initial_req => 1,
+                                  is_main        => 1,
+                                  server         => $mock_client->mock_apache->server,
+                                  connection     => $mock_client->connection,
+                                  _mock_client   => $mock_client,
+                                  _env           => $env,
+                                } );
+
+    local $Mock::Apache::DEBUG = 0;
 
     $r->{log}           ||= $r->{server}->log;
     $r->{notes}           = Apache::Table->new($r);
-    $r->{pnotes}          = Apache::Table->new($r);
+    $r->{pnotes}          = Apache::Table->new($r, 1);
     $r->{headers_in}      = Apache::Table->new($r);
     $r->{headers_out}     = Apache::Table->new($r);
     $r->{err_headers_out} = Apache::Table->new($r);
     $r->{subprocess_env}  = Apache::Table->new($r);
 
+    $request = $r;
+    $server  = $r->{server};
+
     # Having set up a skeletal request object, see about fleshing out the detail
 
     my $initializer = (@_ == 1) ? shift : HTTP::Request->new(@_);
     croak('request initializer must be an HTTP:Request object')
-	unless $initializer->isa('HTTP::Request');
+        unless $initializer->isa('HTTP::Request');
     $r->_initialize_from_http_request_object($initializer);
 
 
@@ -278,7 +326,7 @@ sub _new_request {
     # REQUEST_METHOD, SCRIPT_NAME, SERVER_PROTOCOL, UNIQUE_ID
 
     while (my($key, $val) = each %$env) {
-	$r->{subprocess_env}->set($key, $val);
+        $r->{subprocess_env}->set($key, $val);
     }
 
     return $r;
@@ -287,107 +335,317 @@ sub _new_request {
 sub _initialize_from_http_request_object {
     my ($r, $http_req) = @_;
 
-    $DB::single=1;
+#    $DB::single=1;
 
     my $uri = $http_req->uri;
     $uri = URI->new($uri) unless ref $uri;
 
-    $r->{_uri}    = $uri;
-    $r->{method}  = $http_req->method;
-    ($r->{uri}    = $uri->path) =~ s{^/}{};
-    $r->{content} = $http_req->content;
+    $r->{method}   = $http_req->method;
+    $r->{_uri}     = $uri;
+    ($r->{uri}     = $uri->path) =~ s{^/}{};
+    $r->{protocol} = 'HTTP/1.1';
+    $r->{content}  = $http_req->content;
 
     $http_req->headers->scan( sub {
-				  my ($key, $value) = @_;
-				  $r->headers_in->set($key, $value);
-				  (my $header_env = "HTTP_$key") =~ s/-/_/g;
-				  $r->{subprocess_env}->set($header_env, $value);
-			      } );
+                                  my ($key, $value) = @_;
+                                  $r->headers_in->set($key, $value);
+                                  (my $header_env = "HTTP_$key") =~ s/-/_/g;
+                                  $r->{subprocess_env}->set($header_env, $value);
+                              } );
 
     return;
 }
 
-# $r = Apache->request([$r])                                          # MPPR p23
-sub request { $request };
+################################################################################
+#
+# The Request Object                                                    MPPR p23
 
-# $s = $r->server                                                     # MPPR p38
-# $s = Apache->server
-sub server  { $server };
+# $r = Apache->request([$r])                                            MPPR p23
+sub request {
+    DEBUG('Apache->request => ' . $request);
+    return $request
+}
 
-# $str = $r->document_root                                            # MPPR p32
-sub document_root   { shift->server->{document_root}; }
+# $bool = $r->is_initial_req                                            MPPR p23
+sub is_initial_req {
+    my ($r) = @_;
+    my $bool = $r->{is_initial_req};
+    DEBUG('$r->is_initial_req => %s', $bool ? 'true' : 'false');
+    return $bool;
+}
 
-# $num = $r->server_port                                              # MPPR p33
-sub get_server_port { shift->server->{server_port}; }
+# $bool = $r->is_main                                                   MPPR p23
+sub is_main {
+    my ($r) = @_;
+    my $bool = $r->{is_main};
+    DEBUG('$r->is_main => %s', $bool ? 'true' : 'false');
+    return $bool;
+}
 
-# $str = $r->get_remote_host([$lookup_type])                          # MPPR p25
-# FIXME: emulate lookups properly
-sub get_remote_host {
-    my ($r, $type) = @_;
-    if (@_ == 0 or $type == $Apache::Constant::REMOTE_HOST) {
-	return $r->_mock_client->remote_host;
-    }
-    elsif ($type == $Apache::Constant::REMOTE_ADDR) {
-	return $r->_mock_client->remote_addr;
-    }
-    elsif ($type == $Apache::Constant::REMOTE_NOLOOKUP) {
-	return $r->_mock_client->remote_addr;
-    }
-    elsif ($type == $Apache::Constant::REMOTE_DOUBLE_REV) {
-	return $r->_mock_client->remote_addr;
-    }
-    else {
-	croak "unknown lookup type";
-    }
+# $req = $r->last                                                       MPPR p24
+sub last {
+    my ($r) = @_;
+    my $req = undef;
+    DEBUG('$r->last => %s', ref $req ? $req : 'undef');
+    return $req;
+}
+
+# $req = $r->main                                                       MPPR p24
+sub main {
+    my ($r) = @_;
+    my $req = $r->{main};
+    DEBUG('$r->main => %s', ref $req ? $req : 'undef');
+    return $req;
+}
+
+# $req = $r->next                                                       MPPR p24
+sub next {
+    my ($r) = @_;
+    my $req = undef;
+    DEBUG('$r->next => %s', ref $req ? $req : 'undef');
+    return $req;
+}
+
+# $req = $r->prev                                                       MPPR p24
+sub prev {
+    my ($r) = @_;
+    my $req = undef;
+    DEBUG('$r->prev => %s', ref $req ? $req : 'undef');
+    return $req;
+}
+
+################################################################################
+#
+# The Apache::SubRequest class                                          MPPR p24
+
+# $subr = $r->lookup_file($filename)                                    MPPR p24
+sub lookup_file {
+    my ($r, $file) = @_;
+
+    $DB::single=1;
+    return $r->new( uri            => $file,
+                    is_initial_req => 0 );
+}
+
+# $subr = $r->lookup_uri($uri)                                          MPPR p24
+sub lookup_uri {
+    my ($r, $uri) = @_;
+
+    $DB::single=1;
+    return $r->new( uri            => $uri,
+                    is_initial_req => 0 );
+}
+
+# $subr->run                                                            MPPR p24
+sub run {
+    my ($r) = @_;
+    NYI_DEBUG('$r->run');
 }
 
 
-# $str = $r->header_in($key[, $value])                                # MPPR p26
+################################################################################
+#
+# Client request methods                                                MPPR p24
+
+# {$str|@arr} = $r->args                                                MPPR p24
+# FIXME: query_form_hash does not return the right data if keys are repeated
+sub args {
+    my $r = shift;
+    DEBUG('$r->args => %s', wantarray ? '( @list )' : $r->_uri->query);
+    return wantarray ? $r->_uri->query_form_hash : $r->_uri->query;
+}
+
+# $c = $r->connection                                                   MPPR p25
+sub connection {
+    my ($r) = @_;
+    my $connection = $r->{connection};
+    DEBUG('$r->connection => %s', ref $connection ? $connection : 'undef');
+    return $connection;
+}
+
+# {$str|@arr} = $r->content                                             MPPR p25
+sub content {
+    my ($r) = @_;
+    my $content = $r->{content};
+    DEBUG('$r->content => %s',
+	  wantarray ? '( \'' . substr($content, 0, 20) . '...\'' : substr($content, 0, 20) . '...');
+    return wantarray ? split(qr{\n}, $content) : $content;
+
+}
+
+# $str = $r->filename([$newfilename])                                   MPPR p25
+sub filename {
+    my ($r, $newfilename) = @_;
+    my $filename = $r->{filename};
+    DEBUG('$r->filename(%s) => %s', @_ > 1 ? "'$newfilename'" : '', $filename);
+    $r->{filename} = $newfilename if @_ > 1;
+    return $filename;
+}
+
+# $handle = $r->finfo()                                                 MPPR p25
+sub finfo {
+    my ($r) = @_;
+    NYI_DEBUG('$r->finfo');
+}
+
+# $str = $r->get_remote_host([$lookup_type])                            MPPR p25
+# FIXME: emulate lookups properly
+sub get_remote_host {
+    my ($r, $type) = @_;
+    DEBUG('$r->get_remote_host(%s)', $type);
+    if (@_ == 0 or $type == $Apache::Constant::REMOTE_HOST) {
+        return $r->_mock_client->remote_host;
+    }
+    elsif ($type == $Apache::Constant::REMOTE_ADDR) {
+        return $r->_mock_client->remote_addr;
+    }
+    elsif ($type == $Apache::Constant::REMOTE_NOLOOKUP) {
+        return $r->_mock_client->remote_addr;
+    }
+    elsif ($type == $Apache::Constant::REMOTE_DOUBLE_REV) {
+        return $r->_mock_client->remote_addr;
+    }
+    else {
+        croak "unknown lookup type";
+    }
+}
+
+# $str = $r->get_remote_logname                                        MPPR p26
+sub get_remote_logname {
+    my ($r) = @_;
+    NYI_DEBUG('$r->get_remote_logname');
+}
+
+# $str = $r->header_in($key[, $value])                                  MPPR p26
+# $str = $r->header_out($key[, $value])                                 MPPR p26
+# $str = $r->err_header_out($key[, $value])                             MPPR p26
 sub header_in       { shift->{headers_in}->_get_or_set(@_); }
 sub header_out      { shift->{headers_out}->_get_or_set(@_); }
 sub err_header_out  { shift->{err_headers_out}->_get_or_set(@_); }
 
-# {$href|%hash} = $r->headers_in                                      # MPPR p26
+# {$href|%hash} = $r->headers_in                                        MPPR p26
+# {$href|%hash} = $r->headers_out                                       MPPR p26
+# {$href|%hash} = $r->err_headers_out                                   MPPR p26
 sub headers_in      { shift->{headers_in}->_hash_or_list; }
 sub headers_out     { shift->{headers_out}->_hash_or_list; }
 sub err_headers_out { shift->{err_headers_out}->_hash_or_list; }
 
 
-# $str = $r->method([$newval])                                        # MPPR p26
+# $bool = $r->header_only                                               MPPR p26
+sub header_only {
+    my $r = shift;
+    my $bool = $r->{method} eq 'HEAD';
+    DEBUG('$r->header_only => %s', $bool ? 'true' : 'false');
+    return $bool;
+}
+
+# $str = $r->method([$newval])                                          MPPR p26
 # FIXME: method should be settable
-sub method        { 'GET' }
+sub method {
+    my ($r, $newval) = @_;
+    my $val = $r->{method};
+    DEBUG('\$r->(\'%s\') => \'%s\'', $newval, $val);
+    if (@_ > 1) {
+        $r->{method} = $newval;
+    }
+    return $val;
+}
 
-# $num = $r->method_number([$newval])                                 # MPPR p26
-sub method_number { eval '&Apache::Constants::M_' . $_[0]->{method}; }
+# $num = $r->method_number([$newval])                                   MPPR p26
+# FIXME: deal with newval (need to update method)
+sub method_number {
+    my ($r, $newval) = @_;
+    my $method = eval '&Apache::Constants::M_' . $_[0]->{method};
+    DEBUG('$r->method_number(%s) => %d', @_ > 1 ? $newval : '', $method);
+    return $method;
+}
 
-# {$str|@arr} = $r->args                                              # MPPR p24
-# FIXME: query_form_hash does not return the right data if keys are repeated
-sub args          { return wantarray ? $self->_uri->query_form_hash : $self->_uri->query }
+# $str = $r->parsed_uri                                                 MPPR p26
+sub parsed_uri {
+    my ($r) = @_;
+    my $uri = $r->{_uri};
+    DEBUG('$r->parsed_uri => %s', ref $uri ? $uri : 'undef');
+    return $uri;
+}
+
+# $str = $r->path_info([$newval])                                       MPPR p26
+sub path_info {
+    my ($r) = @_;
+    my $str = $r->{_uri}->path_info;
+    DEBUG('$r->path_info => \'%s\'', $str);
+    return $str;
+}
+
+# $str = $r->protocol                                                   MPPR p26
+sub protocol {
+    my ($r) = @_;
+    my $str = $r->{protocol};
+    DEBUG('$r->protocol => \'%s\'', $str);
+    return $str;
+}
+
+# $str = $r->the_request                                                MPPR p26
+sub the_request {
+    my ($r) = @_;
+    my $str = eval {
+	local $Mock::Apache::DEBUG = 0;
+	sprintf("%s %s %s", $r->method, $r->{_uri}, $r->protocol);
+    };
+    DEBUG('$r->the_request => \'%s\'', $str);
+    return $str;
+}
+
+# $str = $r->uri([$newuri])                                             MPPR p27
+sub uri {
+    my ($r, $newuri) = @_;
+    my $uri = $r->{uri};
+    DEBUG('$r->uri(%s) => %s', @_ > 1 ? "'$newuri'" : '', $uri);
+    $r->{uri} = $newuri if @_ > 1;
+    return $uri;
+}
 
 
-# $str = $r->status_line([$newstr])
+################################################################################
+#
+# Server Response Methods                                              MPPR p27
+
+# $str = $r->cgi_header_out                                            MPPR p28
+sub cgi_header_out {
+    NYI_DEBUG('$r->cgi_header_out');
+}
+
+# $num = $r->request_time                                              MPPR p29
+# Returns the time at which the request started as a Unix time value.
+sub request_time {
+    my ($r) = @_;
+    my $num = $r->{request_time};
+    DEBUG('$r->request_time => %d', $num);
+    return $num;
+}
+
+# $str = $r->status_line([$newstr])                                    MPPR p29
 sub status_line   {
     my $r = shift;
     my $status_line = $r->{status_line};
     if (@_) {
-	if (($r->{status_line} = shift) =~ m{^(\d\d\d)}x) {
-	    $r->status($1);
-	}
+        if (($r->{status_line} = shift) =~ m{^(\d\d\d)}x) {
+            $r->status($1);
+        }
     }
     return $status_line;
 }
+
 
 # FIXME: need better implementation of print
 sub print {
     my ($r, @list) = @_;
     foreach my $item (@list) {
-	$r->{content} .= ref $item eq 'SCALAR' ? $$item : $item;
+        $r->{content} .= ref $item eq 'SCALAR' ? $$item : $item;
     }
     return;
 }
 
-
-# {$str|$href} = $r->notes([$key[,$val]])                             # MPPR p31
+# {$str|$href} = $r->notes([$key[,$val]])                               MPPR p31
 # with no arguments returns a reference to the notes table
 # otherwise gets or sets the named note
 sub notes {
@@ -396,7 +654,7 @@ sub notes {
     return @_ ? $notes->_get_or_set(@_) : $notes->_hash_or_list;
 }
 
-# {$str|$href} = $r->pnotes([$key[,$val]])                            # MPPR p31
+# {$str|$href} = $r->pnotes([$key[,$val]])                              MPPR p31
 # with no arguments returns a reference to the pnotes table
 # otherwise gets or sets the named pnote
 sub pnotes {
@@ -405,59 +663,59 @@ sub pnotes {
     return @_ ? $pnotes->_get_or_set(@_) : $pnotes->_hash_or_list;
 }
 
+# $str = $r->document_root                                              MPPR p32
+sub document_root {
+    my $r = shift;
+    my $str = $r->{server}->{document_root};
+    DEBUG('$r->document_root => \'%s\'', $str);
+    return $str;
+}
+
+# $num = $r->server_port                                                MPPR p33
+sub get_server_port {
+    my $r = shift;
+    my $port = $r->{server}->{server_port};
+    DEBUG('$r->server_port => \'%d\'', $port);
+    return $port;
+}
+
+# $s = $r->server                                                       MPPR p38
+# $s = Apache->server
+sub server  {
+    my $self = shift;
+    DEBUG('%s->server => ' . $server, ref $self ? '$r' : 'Apache');
+    return $server;
+}
+
 sub subprocess_env {
     my $r = shift;
     my $subprocess_env = $r->{subprocess_env};
 
     if (@_) {
-	$subprocess_env->_get_or_set(@_);
+        $subprocess_env->_get_or_set(@_);
     }
     elsif (defined wantarray) {
-	return $subprocess_env->_hash_or_list;
+        return $subprocess_env->_hash_or_list;
     }
     else {
-	$r->{subprocess_env} = Apache::Table->new($r);
+        $r->{subprocess_env} = Apache::Table->new($r);
 
-	while (my($key, $val) = each %{$r->{_env}}) {
-	    $r->{subprocess_env}->set($key, $val);
-	}
-	return;
+        while (my($key, $val) = each %{$r->{_env}}) {
+            $r->{subprocess_env}->set($key, $val);
+        }
+        return;
     }
 }
 
 
 sub dir_config {
-}
-
-
-# Subrequest methods
-
-sub lookup_uri {
-    my ($r, $uri) = @_;
-
-    $DB::single=1;
-    return $r->new( uri            => $uri,
-		    is_initial_req => 0 );
-}
-
-sub lookup_file {
-    my ($r, $file) = @_;
-
-    $DB::single=1;
-    return $r->new( uri            => $file,
-		    is_initial_req => 0 );
-}
-
-
-sub _unimplemented {
     my ($r) = @_;
-
-    $DB::single=1;
-    my $subname = (caller(0))[3];
-    my ($file, $line) = (caller(1))[1..2];
-    croak  "$subname not implemented at $file, line $line";
-    return;
+    NYI_DEBUG('$r->dir_config');
 }
+
+
+
+
 
 package
     Apache::STDOUT;
@@ -466,123 +724,60 @@ package
 
 
 
-##############################################################################
+
+
+################################################################################
 #
-# Implementation of Apache::Request - a.k.a. libapreq
-
-package
-    Apache::Request;
-
-use parent 'Apache';
-
-sub new {
-    my ($class, $r, %params) = @_;
-
-    $r->{$_} = $params{$_}
-	for qw(POST_MAX DISABLE_UPLOADS TEMP_DIR HOOK_DATA UPLOAD_HOOK);
-
-    return bless $r, $class;
-}
-
-sub instance {
-}
-
-
-sub parse {
-    my $apr = shift;
-    $DB::single=1;
-    return;
-}
-
-
-sub param {
-    my $apr = shift;
-
-}
-
-
-sub params {
-    my $apr = shift;
-}
-
-sub upload {
-}
-
-
-package
-    Apache::Upload;
-
-package
-    Apache::Cookie;
-
-sub new {
-}
-
-sub bake {
-}
-
-sub parse {
-}
-
-sub fetch {
-}
-
-sub as_string {
-}
-
-sub name {
-}
-
-sub value {
-}
-
-sub domain {
-}
-
-sub path {
-}
-
-sub expires {
-}
-
-sub secure {
-}
-
-
-
-##############################################################################
+# The Apache::Server Class                                              MPPR p38
 
 package
     Apache::Server;
 
-use Readonly;
-
 use parent 'Class::Accessor';
 
-# gid
-# is_virtual
-# log
-# log_error
-# loglevel
-# names
-# next
-# port
-# server_hostname
-# server_admin
-# timeout
-# uid
-# warn
 
-Readonly our @RW_ACCESSORS => qw();
-Readonly our @RO_ACCESSORS => qw(server_admin server_hostname port uid gid log);
-
-__PACKAGE__->mk_accessors(@RW_ACCESSORS);
-__PACKAGE__->mk_ro_accessors(@RO_ACCESSORS);
+__PACKAGE__->mk_ro_accessors(qw(_mock_apache uid gid log));
 
 sub new {
-    my ($class, %params) = @_;
+    my ($class, $mock_apache, %params) = @_;
     $params{log} = Apache::Log->new();
+    $params{_mock_apache} = $mock_apache;
     return $class->SUPER::new(\%params);
+}
+
+# $num = $s->gid                                                        MPPR p38
+# Returns the numeric group ID under which the server answers requests.  This is
+# the value of the Apache "Group" directive.
+sub gid {
+    my $s = shift;
+    my $gid = $s->{gid};
+    DEBUG('$s->gid => %d', $gid);
+    return $gid;
+}
+
+# $num = $s->port                                                       MPPR p39
+# Returns the port number on which this server listens.
+sub port {
+    my $s = shift;
+    my $port = $s->{port};
+    DEBUG('$s->port => %d', $port);
+    return $port;
+}
+
+# $str = $s->server_hostname                                            MPPR p39
+sub server_hostname {
+    my $s = shift;
+    my $hostname = $s->{server_hostname};
+    DEBUG('$s->server_hostname => \'%s\'', $hostname);
+    return $hostname;
+}
+
+# $str = $s->server_admin                                               MPPR p39
+sub server_admin {
+    my $s = shift;
+    my $admin = $s->{server_admin};
+    DEBUG('$s->server_admin => \'%s\'', $admin);
+    return $admin;
 }
 
 
@@ -591,8 +786,30 @@ sub names {
     return @{$self->{names} || []};
 }
 
+# $num = $s->uid                                                        MPPR p39
+# Returns the numeric user ID under which the server answers requests.  This is
+# the value of the Apache "User" directive.
+sub uid {
+    my $s = shift;
+    my $uid = $s->{uid};
+    DEBUG('$s->uid => %d', $uid);
+    return $uid;
+}
 
-##############################################################################
+# is_virtual
+# log
+# log_error
+# loglevel
+# names
+# next
+# port
+# timeout
+# warn
+
+
+################################################################################
+#
+# The Apache Connection Class                                           MPPR p39
 
 package
     Apache::Connection;
@@ -611,36 +828,36 @@ sub new {
 
 sub aborted { return $_[0]->{_aborted} }
 sub auth_type {
-    $DB::single=1;
-    return;
+    NYI_DEBUG('$c->auth_type');
 }
+
 sub fileno {
-    croak("fileno is not implemented");
-    $DB::single=1;
-    return;
+    NYI_DEBUG('$c->fileno');
 }
+
 sub local_addr {
-    $DB::single=1;
-    return;
+    NYI_DEBUG('$c->local_addr');
 }
+
 sub remote_addr {
-    $DB::single=1;
-    return;
+    NYI_DEBUG('$c->remote_addr');
 }
+
 sub remote_host { $_->_mock_client->remote_host; }
 sub remote_ip   { $_->_mock_client->remote_addr; }
 
 sub remote_logname {
-    $DB::single=1;
+    NYI_DEBUG('$c->remote_logname');
     return;
 }
 sub user {
-    $DB::single=1;
+    NYI_DEBUG('$c->remote_user');
     return;
 }
 
 ##############################################################################
 #
+# Logging and the Apache::Log Class                                   MPPR p34
 
 package
     Apache::Log;
@@ -652,26 +869,56 @@ sub new {
     return bless \%params, $class;
 }
 
+sub log_error {}
+sub log_reason {}
+sub warn {
+    print STDERR @_, "\n";
+}
+
+sub emerg {
+    print STDERR @_, "\n";
+}
+
+sub alert {
+    print STDERR @_, "\n";
+}
+
 ##############################################################################
+#
+# The Apache::Table Class                                             MPPR p40
 
 package
     Apache::Table;
 
 use Apache::FakeTable;
+#use Storable qw(freeze thaw);
+use YAML::Syck;
 use parent 'Apache::FakeTable';
+
+sub new {
+    my ($class, $r, $allow_refs) = @_;
+
+    my $self = $class->SUPER::new($r);
+    $self->{allow_refs} = !!$allow_refs;
+    return $self;
+}
 
 sub _hash_or_list {
     my ($self) = @_;
 
+    my $method_name = (caller(1))[3];
+    DEBUG("\$r->$method_name(%s) => %s",
+	  wantarray ? 'list' : $self);
+
     if (wantarray) {
-	my @values;
-	while (my ($key, $value) = each %$self) {
-	    push @values, $key, $value;
-	}
-	return @values;
+        my @values;
+        while (my ($key, $value) = each %$self) {
+            push @values, $key, $value;
+        }
+        return @values;
     }
     else {
-	return $self;
+        return $self;
     }
 }
 
@@ -679,16 +926,30 @@ sub _hash_or_list {
 sub _get_or_set {
     my ($self, $key, @new_values) = @_;
 
+    my $method_name = (caller(1))[3];
     my @old_values = $self->get($key);
+    if (@old_values and $self->{allow_refs}) {
+	local $YAML::Syck::LoadBlessed = 1;
+
+	@old_values = (map { ( Load($_) ) } @old_values);
+    }
+    DEBUG("\$r->$method_name('%s'%s) => %s", $key,
+	  @new_values ? join(',', '', @new_values) : '',
+	  @old_values ? join(',', @old_values) : '');
     if (@new_values) {
+	if ($self->{allow_refs}) {
+	    @new_values = map { ( Dump($_) ) } @new_values;
+	}
         $self->set($key, @new_values);
     }
+    return unless defined wantarray;
     return wantarray ? @old_values : $old_values[0];
 }
 
 
 ##############################################################################
-
+#
+# The Apache::URI Class                                               MPPR p41
 package
     Apache::URI;
 
@@ -699,47 +960,50 @@ our @ISA = qw(URI);
 
 sub parse {
     my ($r, $string_uri) = @_;
+    DEBUG('$r->parse(%s)', $string_uri);
     $DB::single=1;
+    croak("not yet implemented");
     return;
 }
 
 ##############################################################################
+#
+# The Apache::Util Class                                              MPPR p43
 
 package
     Apache::Util;
 
 sub escape_html {
-    $DB::single=1;
-    return;
-}
-sub escape_uri {
-    $DB::single=1;
-    return;
-}
-sub ht_time {
-    $DB::single=1;
-    return;
+    my ($html) = @_;
+    my $out = $html;
+    $out =~ s/&/&amp;/g;
+    $out =~ s/</&lt;/g;
+    $out =~ s/>/&gt;/g;
+    $out =~ s/"/&quot;/g;
+    DEBUG('Apache::Util::escape_html(\'%s\') => \'%s\'', $html, $out);
+    return $out;
 }
 
+sub escape_uri {
+    NYI_DEBUG('escape_uri');
+}
+sub ht_time {
+    NYI_DEBUG('ht_time');
+}
 sub parsedate {
-    $DB::single=1;
-    return;
+    NYI_DEBUG('parsedate');
 }
 sub size_string {
-    $DB::single=1;
-    return;
+    NYI_DEBUG('size_string');
 }
 sub unescape_uri {
-    $DB::single=1;
-    return;
+    NYI_DEBUG('unescape_uri');
 }
 sub unescape_uri_info {
-    $DB::single=1;
-    return;
+    NYI_DEBUG('unescape_uri_info');
 }
 sub validate_password {
-    $DB::single=1;
-    return;
+    NYI_DEBUG('validate_password');
 }
 
 
@@ -761,8 +1025,8 @@ use parent 'Exporter';
 
 our @COMMON_CONSTS      = qw( OK DECLINED DONE NOT_FOUND FORBIDDEN AUTH_REQUIRED SERVER_ERROR );
 our @RESPONSE_CONSTS    = qw( DOCUMENT_FOLLOWS  MOVED  REDIRECT  USE_LOCAL_COPY
-			      BAD_REQUEST  BAD_GATEWAY  RESPONSE_CODES  NOT_IMPLEMENTED
-			      CONTINUE  NOT_AUTHORITATIVE );
+                              BAD_REQUEST  BAD_GATEWAY  RESPONSE_CODES  NOT_IMPLEMENTED
+                              CONTINUE  NOT_AUTHORITATIVE );
 our @METHOD_CONSTS      = qw( METHODS  M_CONNECT  M_DELETE  M_GET  M_INVALID
                               M_OPTIONS  M_POST  M_PUT  M_TRACE  M_PATCH
                               M_PROPFIND  M_PROPPATCH  M_MKCOL  M_COPY
@@ -787,22 +1051,23 @@ our @ARGS_HOW_CONSTS    = qw( RAW_ARGS  TAKE1  TAKE2  TAKE12  TAKE3  TAKE23  TAK
                               ITERATE  ITERATE2  FLAG  NO_ARGS );
 
 
+our @EXPORT      = ( @COMMON_CONSTS );
 our @EXPORT_OK   = ( @COMMON_CONSTS, @RESPONSE_CONSTS, @METHOD_CONSTS, @OPTIONS_CONSTS, @SATISFY_CONSTS,
                      @REMOTEHOST_CONSTS, @HTTP_CONSTS, @SERVER_CONSTS, @CONFIG_CONSTS, @TYPES_CONSTS,
-		     @OVERRIDE_CONSTS, @ARGS_HOW_CONSTS);
+                     @OVERRIDE_CONSTS, @ARGS_HOW_CONSTS);
 
 our %EXPORT_TAGS = ( common     => \@COMMON_CONSTS,
                      response   => [ @COMMON_CONSTS, @RESPONSE_CONSTS ],
                      methods    => \@METHOD_CONSTS,
                      options    => \@OPTIONS_CONSTS,
-		     satisfy    => \@SATISFY_CONSTS,
-		     remotehost => \@REMOTEHOST_CONSTS,
-		     http       => \@HTTP_CONSTS,
-		     server     => \@SERVER_CONSTS,
-		     config     => \@CONFIG_CONSTS,
-		     types      => \@TYPES_CONSTS,
-		     override   => \@OVERRIDE_CONSTS,
-		     args_how   => \@ARGS_HOW_CONSTS,   );
+                     satisfy    => \@SATISFY_CONSTS,
+                     remotehost => \@REMOTEHOST_CONSTS,
+                     http       => \@HTTP_CONSTS,
+                     server     => \@SERVER_CONSTS,
+                     config     => \@CONFIG_CONSTS,
+                     types      => \@TYPES_CONSTS,
+                     override   => \@OVERRIDE_CONSTS,
+                     args_how   => \@ARGS_HOW_CONSTS,   );
 
 
 sub OK                          {  0 }
@@ -814,22 +1079,33 @@ sub DONE                        { -2 }
 sub CONTINUE                    { 100 }
 sub DOCUMENT_FOLLOWS            { 200 }
 sub NOT_AUTHORITATIVE           { 203 }
-sub HTTP_NO_CONTENT             { 204 }
 sub MOVED                       { 301 }
 sub REDIRECT                    { 302 }
 sub USE_LOCAL_COPY              { 304 }
-sub HTTP_NOT_MODIFIED           { 304 }
 sub BAD_REQUEST                 { 400 }
 sub AUTH_REQUIRED               { 401 }
 sub FORBIDDEN                   { 403 }
 sub NOT_FOUND                   { 404 }
+sub SERVER_ERROR                { 500 }
+sub NOT_IMPLEMENTED             { 501 }
+sub BAD_GATEWAY                 { 502 }
+
+sub HTTP_OK                     { 200 }
+sub HTTP_NO_CONTENT             { 204 }
+sub HTTP_MOVED_PERMANENTLY      { 301 }
+sub HTTP_MOVED_TEMPORARILY      { 302 }
+sub HTTP_NOT_MODIFIED           { 304 }
+sub HTTP_BAD_REQUEST            { 400 }
+sub HTTP_UNAUTHORIZED           { 401 }
+sub HTTP_FORBIDDEN              { 403 }
+sub HTTP_NOT_FOUND              { 404 }
 sub HTTP_METHOD_NOT_ALLOWED     { 405 }
 sub HTTP_NOT_ACCEPTABLE         { 406 }
 sub HTTP_LENGTH_REQUIRED        { 411 }
 sub HTTP_PRECONDITION_FAILED    { 412 }
-sub SERVER_ERROR                { 500 }
-sub NOT_IMPLEMENTED             { 501 }
-sub BAD_GATEWAY                 { 502 }
+sub HTTP_INTERNAL_SERVER_ERROR  { 500 }
+sub HTTP_NOT_IMPLEMENTED        { 501 }
+sub HTTP_BAD_GATEWAY            { 502 }
 sub HTTP_SERVICE_UNAVAILABLE    { 503 }
 sub HTTP_VARIANT_ALSO_VARIES    { 506 }
 
@@ -875,6 +1151,107 @@ sub REMOTE_DOUBLE_REV { 3 }
 sub MODULE_MAGIC_NUMBER { "42" }
 sub SERVER_VERSION      { "1.x" }
 sub SERVER_BUILT        { "199908" }
+
+
+
+##############################################################################
+#
+# Implementation of Apache::Request - a.k.a. libapreq
+
+package
+    Apache::Request;
+
+use parent 'Apache';
+
+sub new {
+    my ($class, $r, %params) = @_;
+
+    DEBUG('Apache::Request->new => %s', $r);
+    $r->{$_} = $params{$_}
+        for qw(POST_MAX DISABLE_UPLOADS TEMP_DIR HOOK_DATA UPLOAD_HOOK);
+
+    return bless $r, $class;
+}
+
+sub instance {
+}
+
+
+sub parse {
+    my $apr = shift;
+    NYI_DEBUG('$apr->parse')
+}
+
+
+sub param {
+    my $apr = shift;
+    NYI_DEBUG('$apr->param')
+}
+
+
+sub params {
+    my $apr = shift;
+    NYI_DEBUG('$apr->params')
+}
+
+sub upload {
+    my $apr = shift;
+    NYI_DEBUG('$apr->upload')
+}
+
+
+package
+    Apache::Upload;
+
+
+
+
+package
+    Apache::Cookie;
+
+sub new {
+    NYI_DEBUG('Apache::Cookie->new');
+}
+
+sub bake {
+    NYI_DEBUG('$c->bake');
+}
+
+sub parse {
+    NYI_DEBUG('$c->parse');
+}
+
+sub fetch {
+    NYI_DEBUG('$c->fetch');
+}
+
+sub as_string {
+    NYI_DEBUG('$c->as_string');
+}
+
+sub name {
+    NYI_DEBUG('$c->name');
+}
+
+sub value {
+    NYI_DEBUG('$c->value');
+}
+
+sub domain {
+    NYI_DEBUG('$c->domain');
+}
+
+sub path {
+    NYI_DEBUG('$c->path');
+}
+
+sub expires {
+    NYI_DEBUG('$c->expires');
+}
+
+sub secure {
+    NYI_DEBUG('$c->secure');
+}
 
 
 1;

@@ -12,9 +12,10 @@ BEGIN {
 }
 use Apache::Constants qw(:common);
 
+my $DEBUG      = 0;     # set to 1 for method tracing
 my $start_time = time;
 
-my $mock_apache = Mock::Apache->setup_server;
+my $mock_apache = Mock::Apache->setup_server(DEBUG => $DEBUG);
 my $mock_client = $mock_apache->mock_client();
 my $request     = $mock_client->new_request(GET => 'http://example.com/index.html');
 
