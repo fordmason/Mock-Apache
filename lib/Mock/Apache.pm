@@ -16,6 +16,7 @@ use strict;
 use Apache::ConfigParser;
 use Capture::Tiny qw(capture_stdout);
 use Carp;
+use Cwd;
 use HTTP::Headers;
 use HTTP::Response;
 use Module::Loaded;
@@ -32,7 +33,7 @@ BEGIN {
 
     Readonly our @APACHE_CLASSES
 	=> qw( Apache  Apache::SubRequest  Apache::Server  Apache::Connection
-               Apache::Log  Apache::Table  Apache::URI  Apache::Util
+               Apache::File  Apache::Log  Apache::Table  Apache::URI  Apache::Util
                Apache::Constants  Apache::ModuleConfig  Apache::Symbol
 	       Apache::Request  Apache::Upload  Apache::Cookie );
 
@@ -53,6 +54,8 @@ BEGIN {
 	    if ($file eq __FILE__) {
 		($package, $file, $line, $subr) = ((caller(2))[0..2], (caller(3))[3]);
 	    }
+	    my $dir = getcwd;
+	    $file =~ s{^$dir/}{};
 	    print STDERR "       from $subr at line $line of $file\n";
 	}
 
@@ -64,20 +67,28 @@ BEGIN {
 
 	$message .= "\n" unless $message =~ qr{\n$};
 	printf STDERR "DEBUG: $message", @args;
+
+	my $carp_level = 1;
+	my ($package, $file, $line, $subr) = ((caller(1))[0..2], (caller(2))[3]);
+	if ($file eq __FILE__) {
+	    $carp_level++;
+	    ($package, $file, $line, $subr) = ((caller(2))[0..2], (caller(3))[3]);
+	}
 	if ($DEBUG > 1) {
-	    my ($package, $file, $line, $subr) = ((caller(1))[0..2], (caller(2))[3]);
-	    if ($file eq __FILE__) {
-		($package, $file, $line, $subr) = ((caller(2))[0..2], (caller(3))[3]);
-	    }
-	    print STDERR "       from $subr at line $line of $file\n";
+	    my $dir = getcwd;
+	    $file =~ s{^$dir/}{};
+	    print STDERR "       from $subr at line $line of $file";
 	}
 	$DB::single = 1;
-	croak((caller)[3] . " - NOT YET IMPLEMENTED");
+	local $Carp::CarpLevel = $carp_level;
+	croak((caller(1))[3] . " - NOT YET IMPLEMENTED");
     }
 
     no strict 'refs';
     *{"${_}::DEBUG"} = \&DEBUG for @APACHE_CLASSES;
     *{"${_}::NYI_DEBUG"} = \&NYI_DEBUG for @APACHE_CLASSES;
+
+    $ENV{MOD_PERL} = 'CGI-Perl/1.1';
 }
 
 Readonly our $DEFAULT_HOSTNAME => 'server.example.com';
@@ -179,10 +190,15 @@ sub execute_handler {
 	local $Mock::Apache::DEBUG = $saved_debug;
 	$handler->($request);
     };
-    $request->status_line('500 Internal server error')
-	if $@;
+    if ($@) {
+	printf STDERR "handler failed: $@\n";
+	$request->status_line('500 Internal server error');
+    }
 
     my $status  = $request->status;
+    if ($rc == &Apache::Constants::MOVED and !$status) {
+	$request->status_line(($status = &Apache::Constants::HTTP_MOVED_PERMANENTLY) . ' moved permanently');
+    }
     (my $message = $request->status_line || '') =~ s/^... //;
     my $headers = HTTP::Headers->new;
     while (my($field, $value) = each %{$request->headers_out}) {
@@ -495,7 +511,9 @@ sub content {
 sub filename {
     my ($r, $newfilename) = @_;
     my $filename = $r->{filename};
-    DEBUG('$r->filename(%s) => %s', @_ > 1 ? "'$newfilename'" : '', $filename);
+    DEBUG('$r->filename(%s)%s',
+	  @_ > 1 ? "'$newfilename'" : '',
+	  defined wantarray ? " => $filename" : '');
     $r->{filename} = $newfilename if @_ > 1;
     return $filename;
 }
@@ -698,6 +716,15 @@ sub print {
     return;
 }
 
+# $r->send_http_header([$content_type])                                 MPPR p30
+sub send_http_header{
+    my ($r, $content_type) = @_;
+    DEBUG('$r->send_http_header(%s)', @_ > 1 ? "'$content_type" : '');
+    return;
+}
+
+
+
 # {$str|$href} = $r->notes([$key[,$val]])                               MPPR p31
 # with no arguments returns a reference to the notes table
 # otherwise gets or sets the named note
@@ -731,6 +758,14 @@ sub get_server_port {
     DEBUG('$r->server_port => \'%d\'', $port);
     return $port;
 }
+
+# $r->log_error($message)                                               MPPR p34
+sub log_error {
+    my ($r, $message) = @_;
+    DEBUG('$r->log_error(\%s\')', $message);
+    $r->{log}->error($message);
+}
+
 
 # $s = $r->server                                                       MPPR p38
 # $s = Apache->server
@@ -919,42 +954,41 @@ sub new {
     return bless \%params, $class;
 }
 
-sub log_error {}
 sub log_reason {}
 
 sub warn {
     my $r = shift;
-    print STDERR "WARN: ", @_, "\n";
+    print STDERR "[warn]:  ", @_, "\n";
 }
 
 sub emerg {
     my $r = shift;
-    print STDERR "EMERG: ", @_, "\n";
+    print STDERR "[emerg]: ", @_, "\n";
 }
 
 sub alert {
     my $r = shift;
-    print STDERR "ALERT: ", @_, "\n";
+    print STDERR "[alert]: ", @_, "\n";
 }
 
 sub error {
     my $r = shift;
-    print STDERR "ERROR: ", @_, "\n";
+    print STDERR "[error]: ", @_, "\n";
 }
 
 sub notice {
     my $r = shift;
-    print STDERR "NOTICE: ", @_, "\n";
+    print STDERR "[notice]: ", @_, "\n";
 }
 
 sub info {
     my $r = shift;
-    print STDERR "INFO: ", @_, "\n";
+    print STDERR "[info]: ", @_, "\n";
 }
 
 sub debug {
     my $r = shift;
-    print STDERR "DEBUG: ", @_, "\n";
+    print STDERR "[debug]: ", @_, "\n";
 }
 
 
@@ -966,15 +1000,14 @@ package
     Apache::Table;
 
 use Apache::FakeTable;
-#use Storable qw(freeze thaw);
-use YAML::Syck;
 use parent 'Apache::FakeTable';
 
 sub new {
     my ($class, $r, $allow_refs) = @_;
 
     my $self = $class->SUPER::new($r);
-    $self->{allow_refs} = !!$allow_refs;
+    bless tied(%$self), 'Apache::FakeTableHash::RefsAllowed'
+	if $allow_refs;
     return $self;
 }
 
@@ -1003,23 +1036,58 @@ sub _get_or_set {
 
     my $method_name = (caller(1))[3];
     my @old_values = $self->get($key);
-    if (@old_values and $self->{allow_refs}) {
-	local $YAML::Syck::LoadBlessed = 1;
-
-	@old_values = (map { ( Load($_) ) } @old_values);
-    }
-    DEBUG("\$r->$method_name('%s'%s) => %s", $key,
+    DEBUG("\$r->$method_name('%s'%s)%s", $key,
 	  @new_values ? join(',', '', @new_values) : '',
-	  @old_values ? join(',', @old_values) : '');
+	  defined wantarray ? ' => ' . (@old_values ? join(',', @old_values) : "''" ) : '');
     if (@new_values) {
-	if ($self->{allow_refs}) {
-	    @new_values = map { ( Dump($_) ) } @new_values;
-	}
         $self->set($key, @new_values);
     }
     return unless defined wantarray;
     return wantarray ? @old_values : $old_values[0];
 }
+
+# Apache::FakeTableHash always stores values as strings in an array.
+# We need to allow references to be stored (for pnotes), so we rebless
+# the tied hash into our own Apache::FakeTableHash::RefsAllowed class,
+# which is a subclass of Apache::FakeTableHash.
+
+package
+    Apache::FakeTableHash::RefsAllowed;
+
+our @ISA = qw(Apache::FakeTableHash);
+
+sub STORE {
+    my ($self, $key, $value) = @_;
+
+    # Issue a warning if the value is undefined.
+    if (! defined $value and $^W) {
+        require Carp;
+        Carp::carp('Use of uninitialized value in null operation');
+        $value = '';
+    }
+    $self->{lc $key} = [ $key => [$value] ];
+}
+
+sub _add {
+    my ($self, $key, $value) = @_;
+    my $ckey = lc $key;
+
+    if (exists $self->{$ckey}) {
+        # Add it to the array,
+        push @{$self->{$ckey}[1]}, $value;
+    } else {
+        # It's a simple assignment.
+        $self->{$ckey} = [ $key => [$value] ];
+    }
+}
+
+##############################################################################
+#
+# The Apache::File Class                                              MPPR p
+
+package
+    Apache::File;
+
 
 
 ##############################################################################
@@ -1236,6 +1304,7 @@ sub SERVER_BUILT        { "199908" }
 package
     Apache::Request;
 
+use URI::QueryParam;
 use parent 'Apache';
 
 sub new {
@@ -1255,7 +1324,16 @@ sub instance {
 
 sub parse {
     my $apr = shift;
-    NYI_DEBUG('$apr->parse')
+    DEBUG('$apr->parse');
+
+    my $params = $apr->{params} = Apache::Table->new($apr);
+    my $uri = $apr->_uri;
+    foreach my $key ($uri->query_param) {
+	foreach my $value ($uri->query_param($key)) {
+	    $params->add($key, $value);
+	}
+    }
+    return;
 }
 
 
@@ -1265,9 +1343,11 @@ sub param {
 }
 
 
-sub params {
-    my $apr = shift;
-    NYI_DEBUG('$apr->params')
+sub parms {
+    my ($apr, $newval) = @_;
+    DEBUG('$apr->parms(%s)', @_ > 1 ? "$newval" : '');
+    $apr->parse unless $apr->{params};
+    return $apr->{params};
 }
 
 sub upload {
