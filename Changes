@@ -1,5 +1,8 @@
 Revision history for Perl extension Mock::Apache.
 
+0.05  2013-10-30
+        - expanded implementation
+
 0.04  2013-10-29
         - expanded implementation
 

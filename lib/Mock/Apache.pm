@@ -1,7 +1,9 @@
 # Mock::Apache - a package to mock the mod_perl 1.x environment
 #
-# Page references, marked MPPR pX, refer to my book: "Mod_perl Pocket
-# Reference", Andrew Ford, O'Reilly & Associates, 2001, 0-596-00047-2
+
+# Method descriptions are taken from my book: "Mod_perl Pocket Reference",
+# Andrew Ford, O'Reilly & Associates, 2001, 0-596-00047-2.  Page references,
+# marked MPPR pNN, refer to the book.
 #
 # Copyright (C) 2013, Andrew Ford.  All rights reserved.
 # This library is free software; you can redistribute it and/or
@@ -23,15 +25,15 @@ use parent 'Class::Accessor';
 
 __PACKAGE__->mk_accessors(qw(server));
 
-our $VERSION = "0.04";
+our $VERSION = "0.05";
 our $DEBUG;
 
 BEGIN {
 
     Readonly our @APACHE_CLASSES
-	=> qw( Apache  Apache::Server  Apache::Connection  Apache::Log
-	       Apache::Table  Apache::URI  Apache::Util  Apache::Constants
-	       Apache::ModuleConfig  Apache::Symbol
+	=> qw( Apache  Apache::SubRequest  Apache::Server  Apache::Connection
+               Apache::Log  Apache::Table  Apache::URI  Apache::Util
+               Apache::Constants  Apache::ModuleConfig  Apache::Symbol
 	       Apache::Request  Apache::Upload  Apache::Cookie );
 
 
@@ -345,14 +347,21 @@ sub _initialize_from_http_request_object {
 ################################################################################
 #
 # The Request Object                                                    MPPR p23
+#
+# Handlers are called with a reference to the current request object (Apache),
+# which by convention is named $r.
 
 # $r = Apache->request([$r])                                            MPPR p23
+# Returns a reference to the request object.  Perl handlers are called with a
+# reference to the request object as the first argument.
 sub request {
     DEBUG('Apache->request => ' . $request);
     return $request
 }
 
 # $bool = $r->is_initial_req                                            MPPR p23
+# Returns true if the current request is the initial request, and false if it is
+# a subrequest or an internal redirect.
 sub is_initial_req {
     my ($r) = @_;
     my $bool = $r->{is_initial_req};
@@ -361,6 +370,8 @@ sub is_initial_req {
 }
 
 # $bool = $r->is_main                                                   MPPR p23
+# Returns true if the current request is the initial request or an internal
+# redirect, and false if it is a subrequest.
 sub is_main {
     my ($r) = @_;
     my $bool = $r->{is_main};
@@ -369,6 +380,8 @@ sub is_main {
 }
 
 # $req = $r->last                                                       MPPR p24
+# Returns a reference to the last request object in the chain.  When used in a 
+# logging handler, this is the request object that generated the final result.
 sub last {
     my ($r) = @_;
     my $req = undef;
@@ -377,6 +390,8 @@ sub last {
 }
 
 # $req = $r->main                                                       MPPR p24
+# Returns a reference to the main (intitial) request object, or undef if $r is
+# the main request obeject.
 sub main {
     my ($r) = @_;
     my $req = $r->{main};
@@ -385,6 +400,7 @@ sub main {
 }
 
 # $req = $r->next                                                       MPPR p24
+# Returns a reference to the next request object in the chain.
 sub next {
     my ($r) = @_;
     my $req = undef;
@@ -393,6 +409,8 @@ sub next {
 }
 
 # $req = $r->prev                                                       MPPR p24
+# Returns a reference to the previous request object in the chain.  When used in
+# an error handler, this is the request that triggered the error.
 sub prev {
     my ($r) = @_;
     my $req = undef;
@@ -400,11 +418,15 @@ sub prev {
     return $req;
 }
 
+
 ################################################################################
 #
-# The Apache::SubRequest class                                          MPPR p24
+# The Apache::SubRequest Class                                          MPPR p24
+#
+# The Apache::SubRequest Class is a subclass of Apache and inherits its methods.
 
 # $subr = $r->lookup_file($filename)                                    MPPR p24
+# Fetches a subrequest object by filename.
 sub lookup_file {
     my ($r, $file) = @_;
 
@@ -414,6 +436,7 @@ sub lookup_file {
 }
 
 # $subr = $r->lookup_uri($uri)                                          MPPR p24
+# Fetches a subrequest object by URI.
 sub lookup_uri {
     my ($r, $uri) = @_;
 
@@ -422,10 +445,19 @@ sub lookup_uri {
                     is_initial_req => 0 );
 }
 
+
 # $subr->run                                                            MPPR p24
-sub run {
-    my ($r) = @_;
-    NYI_DEBUG('$r->run');
+# Invokes the subrequest's content handler and the returns the content handler's
+# status code.
+{
+    package
+        Apache::SubRequest;
+
+    our @ISA = qw(Apache);
+    sub run {
+	my ($r) = @_;
+	NYI_DEBUG('$r->run');
+    }
 }
 
 
@@ -740,9 +772,6 @@ sub dir_config {
 
 package
     Apache::STDOUT;
-
-
-
 
 
 
@@ -1357,12 +1386,20 @@ Mock::Apache - mock Apache environment for testing and debugging
 =head1 DESCRIPTION
 
 C<Mock::Apache> is a mock framework for testing and debugging mod_perl
-1.x applications.  It is based on C<Apache::FakeRequest> but goes
-beyond that module, attempting to provide a relatively comprehensive
-mocking of the mod_perl environment.
+1.x applications.  Although that verson of mod_perl is obsolete, there
+is still a lot of legacy code that uses it.  The framework is intended
+to assist in understanding such code, by enabling it to be run and
+debugged outside of the web server environment.  The framework
+provides a tracing facility that prints all methods called, optionally
+with caller information.
 
-The module is still very much at an alpha stage, with much of the
-Apache::* classes missing.
+C<Mock::Apache> is based on C<Apache::FakeRequest> but goes beyond
+that module, attempting to provide a relatively comprehensive mocking
+of the mod_perl environment.
+
+NOTE: the module is still very much at an alpha stage, with much of
+the Apache::* classes missing, and much of the emulation incomplete or
+probably just wrong.
 
 I am aiming to provide top-level methods to "process a request", by
 giving the mock apache object enough information about the
