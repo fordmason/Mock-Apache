@@ -1,48 +1,41 @@
-use ExtUtils::MakeMaker;
+use inc::Module::Install 0.91;
+use Module::Install::ReadmeFromPod;
+use Module::Install::AuthorRequires;
+use Module::Install::AuthorTests;
+use Module::Install::AssertOS;
 
-WriteMakefile( NAME          => 'Mock::Apache',
-               VERSION_FROM  => 'lib/Mock/Apache.pm',
-               ABSTRACT      => 'Mock Apache environment',
-               AUTHOR        => 'Andrew Ford <andrew[at]ford-mason.co.uk>',
-               LICENSE       => 'perl',
-               PREREQ_PM     => {
-                   'Apache::FakeTable'     => 0,
-                   'Apache::ConfigParser'  => 0,
-                   'Capture::Tiny'         => 0,
-                   'Carp'                  => 0,
-                   'Class::Accessor'       => 0,
-                   'Cwd'                   => 0,
-                   'HTTP::Headers'         => 0,
-                   'HTTP::Response'        => 0,
-                   'IO::Scalar'            => 0,
-                   'Log::Log4perl'         => 0,
-                   'Module::Loaded'        => 0,
-                   'parent'                => 0,
-                   'Readonly'              => 0,
-                   'Scalar::Util'          => 0,
-                   'URI'                   => 0,
-                   'URI::QueryParam'       => 0,
-               },
-               META_ADD      => {
+assertos qw/ Unix /;
 
-                   # Mock::Apache provides emulated implementations of
-                   # the mod_perl modules, but these should not be
-                   # indexed.
+all_from    'lib/Mock/Apache.pm';
+readme_from 'lib/Mock/Apache.pm';
 
-                   no_index => {
-                       package   => [ qw( Apache
-                                          Apache::Connection
-                                          Apache::Constants
-                                          Apache::Log
-                                          Apache::Server
-                                          Apache::Table
-                                          Apache::URI
-                                          Apache::Util ) ],
-                   },
-                   repository  => {
-                       url  => 'git://github.com/fordmason/Mock-Apache.git',
-                       web  => 'https://github.com/fordmason/Mock-Apache',
-                       type => 'git',
-                   },
-               },
-            );
+requires 'Apache::FakeTable';
+requires 'Apache::ConfigParser';
+requires 'Capture::Tiny';
+requires 'Carp';
+requires 'Class::Accessor';
+requires 'Cwd';
+requires 'HTTP::Headers';
+requires 'HTTP::Response';
+requires 'IO::Scalar';
+requires 'Log::Log4perl';
+requires 'Module::Loaded';
+requires 'parent';
+requires 'Readonly';
+requires 'Scalar::Util';
+requires 'URI';
+requires 'URI::QueryParam';
+
+
+test_requires 'Test::More' => '0.88';
+
+author_requires 'Test::NoTabs';
+author_requires 'Test::Pod' => '1.14';
+author_requires 'Test::Pod::Coverage' => '1.04';
+author_requires 'Test::Spelling' => '0.11';
+
+author_tests 't/author';
+
+resources repository => 'https://github.com/fordmason/Mock-Apache.git';
+
+WriteAll;

@@ -1,5 +1,10 @@
 Revision history for Perl extension Mock::Apache.
 
+0.07  2013-10-31
+        - switch Makefile.PL to use Module::Install
+        - add author test
+        - fix bug in $r->status_line($newval)
+
 0.06  2013-10-31
         - output from handlers is now captured
         - basic handling of status/content-type/content-length

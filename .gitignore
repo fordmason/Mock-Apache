@@ -1,6 +1,7 @@
 #*
 *~
 *.old
+inc
 Makefile
 Mock-Apache-*
 MYMETA.*

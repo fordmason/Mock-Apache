@@ -25,7 +25,7 @@ use parent 'Class::Accessor';
 
 __PACKAGE__->mk_accessors(qw(server));
 
-our $VERSION = "0.06";
+our $VERSION = "0.07";
 our $DEBUG;
 
 BEGIN {
@@ -712,8 +712,8 @@ sub status_line   {
     my ($r, $newval) = @_;
     my $status_line = $r->{status_line};
     DEBUG('$r->status_line(%s) => %d', @_ > 1 ? "$newval" : '', $status_line);
-    if (@_) {
-        if (($r->{status_line} = $status_line) =~ m{^(\d\d\d)}x) {
+    if (@_ > 1) {
+        if (($r->{status_line} = $newval) =~ m{^(\d\d\d)}x) {
             $r->status($1);
         }
     }
@@ -1480,7 +1480,7 @@ Mock::Apache - mock Apache environment for testing and debugging
 =head1 DESCRIPTION
 
 C<Mock::Apache> is a mock framework for testing and debugging mod_perl
-1.x applications.  Although that verson of mod_perl is obsolete, there
+1.x applications.  Although that version of mod_perl is obsolete, there
 is still a lot of legacy code that uses it.  The framework is intended
 to assist in understanding such code, by enabling it to be run and
 debugged outside of the web server environment.  The framework
@@ -1553,7 +1553,7 @@ I<mod_perl Pocket Reference> by Andrew Ford, O'Reilly & Associates,
 Inc, Sebastapol, 2001, ISBN: 0-596-00047-2
 
 
-=head1 ACKNOWLEDGMENTS
+=head1 ACKNOWLEDGEMENTS
 
 Inspired by C<Apache::FakeRequest> by Doug MacEachern, with contributions
 from Andrew Ford <andrew@ford-mason.co.uk>.
