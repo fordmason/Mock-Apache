@@ -1,5 +1,10 @@
 Revision history for Perl extension Mock::Apache.
 
+0.06  2013-10-31
+        - output from handlers is now captured
+        - basic handling of status/content-type/content-length
+        - new unit tests added
+
 0.05  2013-10-30
         - expanded implementation
 

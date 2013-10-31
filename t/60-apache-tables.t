@@ -8,12 +8,16 @@ use lib "$Bin/../lib";
 
 use Mock::Apache;
 use Apache::Constants qw(:common);
+use Readonly;
 
-my $mock_apache = Mock::Apache->setup_server();
+# set to 0 (no debug), 1 (methods traced), 2 (methods and callers traced)
+Readonly my $DEBUG_LEVEL => 0;
+
+my $mock_apache = Mock::Apache->setup_server(DEBUG => $DEBUG_LEVEL);
 my $mock_client = $mock_apache->mock_client();
 
 
-diag "testing Apache::Table tables";
+diag "testing Apache::Table emulation";
 
 $mock_apache->execute_handler(\&handler1, $mock_client, GET => 'http://example.com/index.html');
 

@@ -6,16 +6,15 @@ use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
-BEGIN {
-    use_ok('Mock::Apache')
-	or die 'cannot load Mock::Apache';
-}
+BEGIN { use_ok('Mock::Apache') or die 'cannot load Mock::Apache'; }
 use Apache::Constants qw(:common);
 
-my $DEBUG      = 0;     # set to 1 for method tracing
-my $start_time = time;
+# set to 0 (no debug), 1 (methods traced), 2 (methods and callers traced)
+my $DEBUG_LEVEL = 0;
 
-my $mock_apache = Mock::Apache->setup_server(DEBUG => $DEBUG);
+my $start_time  = time;
+
+my $mock_apache = Mock::Apache->setup_server(DEBUG => $DEBUG_LEVEL);
 my $mock_client = $mock_apache->mock_client();
 my $request     = $mock_client->new_request(GET => 'http://example.com/index.html');
 
@@ -30,6 +29,7 @@ cmp_ok($request->request_time, '<=', time,        'request time is sane (not lat
 
 ok(!exists $ENV{REMOTE_HOST}, 'no $ENV{REMOTE_HOST} entry prior to invoking handler');
 $mock_apache->execute_handler(\&handler, $request);
+
 ok(!exists $ENV{REMOTE_HOST}, 'no $ENV{REMOTE_HOST} entry after invoking handler');
 
 done_testing();
@@ -38,12 +38,11 @@ done_testing();
 sub handler {
     my $r = shift;
 
-    subtest in_handler => sub {
-	ok(exists $ENV{REMOTE_HOST}, 'in handler: $ENV{REMOTE_HOST} entry exists');
-	ok($r->is_initial_req,       'in handler: $r->is_initial_req');
-	ok($r->is_main,              'in handler: $r->is_main');
-	is($r->server->server_admin, 'webmaster@server.example.com', 'in handler: $s->server_admin');
-    };
+    ok(exists $ENV{REMOTE_HOST}, 'in handler: $ENV{REMOTE_HOST} entry exists');
+    ok($r->is_initial_req,       'in handler: $r->is_initial_req');
+    ok($r->is_main,              'in handler: $r->is_main');
+    is($r->server->server_admin, 'webmaster@server.example.com', 'in handler: $s->server_admin');
+
     return OK;
 }
 
