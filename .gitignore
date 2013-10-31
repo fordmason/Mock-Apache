@@ -1,9 +1,13 @@
-#*
+.#*
+\#*
 *~
 *.old
-inc
+*.bak
+Debian_CPANTS.txt
+MYMETA.*
 Makefile
 Mock-Apache-*
-MYMETA.*
+README
 blib
+inc
 pm_to_blib

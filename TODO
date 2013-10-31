@@ -1,9 +1,13 @@
 To-Do List for Mock::Apache
 ===========================
 
-* implement Apache::File methods
-* implement Apache::Util methods
-* implement Apache::ModuleConfig methods
+* implement all API methods
+  - implement Apache::File methods
+  - implement Apache::Util methods
+  - implement Apache::ModuleConfig methods
+
+* implement/emulate libapreq modules
+  Apache::Cookie, Apache::Request, Apache::Upload, Apache::libapreq
 
 * get printing from handlers working - probably with a tied filehandle
   appending to $r->{_output}
@@ -13,3 +17,4 @@ To-Do List for Mock::Apache
 * add facility on execute_handler to specify condition for client to
   hang up (e.g. after N calls to method X) - should set $r->{_aborted}
 
+* look at Apache-ConfigParser for parsing configuration files
