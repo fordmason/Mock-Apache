@@ -41,6 +41,8 @@ inc/Module/Install/ReadmeFromPod.pm
 inc/Module/Install/Win32.pm
 inc/Module/Install/WriteAll.pm
 lib/Mock/Apache.pm
+lib/Mock/Apache/Emulation.pm
+lib/Mock/Apache/RemoteClient.pm
 Makefile.PL
 MANIFEST
 MANIFEST.SKIP

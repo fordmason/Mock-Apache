@@ -4,6 +4,7 @@
 *.old
 *.bak
 Debian_CPANTS.txt
+META.yml
 MYMETA.*
 Makefile
 Mock-Apache-*

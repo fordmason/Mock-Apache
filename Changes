@@ -1,5 +1,9 @@
 Revision history for Perl extension Mock::Apache.
 
+0.08  2013-11-01
+        - split out emulation code into Mock::Apache::Emulation
+        - split out mock client code into Mock::Apache::RmoteClient
+
 0.07  2013-10-31
         - switch Makefile.PL to use Module::Install
         - add author test

@@ -32,7 +32,8 @@ test_requires 'Test::More' => '0.88';
 author_requires 'Test::NoTabs';
 author_requires 'Test::Pod' => '1.14';
 author_requires 'Test::Pod::Coverage' => '1.04';
-author_requires 'Test::Spelling' => '0.11';
+author_requires 'Test::Spelling' => '0.11'
+    if $] >= 5.010000;  # prerequisites require 5.10
 
 author_tests 't/author';
 
