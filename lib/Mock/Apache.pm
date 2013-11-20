@@ -25,7 +25,7 @@ use parent 'Class::Accessor';
 
 __PACKAGE__->mk_accessors(qw(server));
 
-our $VERSION = "0.08";
+our $VERSION = "0.09";
 our $DEBUG;
 
 BEGIN {

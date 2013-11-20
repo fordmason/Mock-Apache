@@ -1,5 +1,8 @@
 Revision history for Perl extension Mock::Apache.
 
+0.09  2013-11-20
+        - add @EXPORT_TAGS to Apache::Util in emulation
+
 0.08  2013-11-01
         - split out emulation code into Mock::Apache::Emulation
         - split out mock client code into Mock::Apache::RmoteClient

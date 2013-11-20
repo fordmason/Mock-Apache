@@ -873,6 +873,11 @@ sub parse {
 package
     Apache::Util;
 
+use parent 'Exporter';
+our @EXPORT_OK   = qw( escape_html escape_uri unescape_uri unescape_uri_info
+		       parsedate ht_time size_string validate_password );
+our %EXPORT_TAGS = ( all => \@EXPORT_OK );
+
 sub escape_html {
     my ($html) = @_;
     my $out = $html;
