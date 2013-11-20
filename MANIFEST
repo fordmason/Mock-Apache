@@ -52,6 +52,7 @@ README
 t/00-basic.t
 t/10-config-file.t
 t/20-simple-request.t
+t/30-exports-apache-util.t
 t/60-apache-tables.t
 t/data/httpd-basic.conf
 TODO
